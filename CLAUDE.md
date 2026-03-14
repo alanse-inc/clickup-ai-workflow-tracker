@@ -54,7 +54,7 @@ CI では golangci-lint-action が自動でバイナリを取得するため go.
 - エラーハンドリングはシステム境界（外部API呼び出し）にのみ行う
 - パッケージは internal/ 配下に配置し、外部公開しない
 - テストは *_test.go に記述し、テーブル駆動テストを基本とする
-- ログは構造化ログ（key=value形式）を使用する
+- ログは構造化ログ（JSON形式、slog.NewJSONHandler）を使用する
 
 ## Development Flow
 

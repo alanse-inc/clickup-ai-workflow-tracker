@@ -116,18 +116,7 @@ Claude Code への指示例:
 Claude Code の PostToolUse Hook で、ファイル変更時に自動的に lint・フォーマット・型チェックを実行する。
 
 `.claude/settings.json` に設定:
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "command": "go fmt ./... && go vet ./..."
-      }
-    ]
-  }
-}
-```
+`.claude/settings.json` を参照。Hook は Go ファイル変更時に `go fmt` と `go vet` を自動実行する。
 
 これにより、Claude Code がコードを変更するたびに自動でフォーマットと静的解析が走り、問題を即座に検知できる。
 

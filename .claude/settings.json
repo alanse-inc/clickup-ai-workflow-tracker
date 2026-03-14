@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "ls *.go **/*.go 2>/dev/null && (go fmt ./... 2>&1; go vet ./... 2>&1) || true"
+      }
+    ]
+  }
+}

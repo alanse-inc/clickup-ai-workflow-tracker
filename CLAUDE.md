@@ -32,6 +32,10 @@ golangci-lint fmt ./...              # Format
 go vet ./...                         # 静的解析
 ```
 
+golangci-lint はプロジェクトの Go 依存ではなく、グローバルにインストールする開発ツール。
+`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest` でインストールする。
+CI では golangci-lint-action が自動でバイナリを取得するため go.mod への追加は不要。
+
 ## Environment Variables
 
 | 変数名 | 必須 | 説明 |

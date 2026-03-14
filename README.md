@@ -35,3 +35,7 @@ go build -o bin/server ./cmd/server  # ビルド
 go test ./...                        # テスト
 golangci-lint run ./...              # Lint
 ```
+
+> **Note**: `golangci-lint` はプロジェクトの Go 依存ではなく、グローバルにインストールする開発ツールです。
+> `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest` でインストールしてください。
+> CI では `golangci-lint-action` が自動でバイナリを取得するため `go.mod` への追加は不要です。

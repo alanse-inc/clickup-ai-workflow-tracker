@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - goconst
+    - gocognit
+    - errname
+    - errorlint
+    - noctx
+    - prealloc
+    - unconvert
+    - unparam
+
+formatters:
+  enable:
+    - gofumpt
+
+linters-settings:
+  gocognit:
+    min-complexity: 20
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+issues:
+  exclude-dirs:
+    - vendor

@@ -63,7 +63,7 @@ cp .env.example .env
 | `GITHUB_PAT` | Yes (*1) | GitHub Personal Access Token（classic: `repo`, `workflow` スコープ / fine-grained: Contents + Actions の Read and write） |
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
-| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem \| tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
+| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
 | `GITHUB_OWNER` | Yes | ターゲットリポジトリのオーナー |
 | `GITHUB_REPO` | Yes | ターゲットリポジトリ名 |
 | `GITHUB_WORKFLOW_FILE` | No | ワークフローファイル名（default: `agent.yml`） |

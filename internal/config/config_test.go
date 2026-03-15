@@ -306,6 +306,27 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "GitHub App with base64 key containing embedded newlines and spaces",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				// macOS base64 のデフォルト折り返し（76文字）を模倣した改行・空白入り base64
+				encoded := base64.StdEncoding.EncodeToString([]byte("line1\nline2\nline3\n"))
+				withWrapping := encoded[:10] + "\n" + encoded[10:20] + " " + encoded[20:]
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", withWrapping)
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.GitHubAppPrivateKey != "line1\nline2\nline3\n" {
+					t.Errorf("GitHubAppPrivateKey = %q, want %q", cfg.GitHubAppPrivateKey, "line1\nline2\nline3\n")
+				}
+			},
+		},
+		{
 			name: "GitHub App with invalid base64 private key",
 			setup: func(t *testing.T) {
 				clearEnvs(t)

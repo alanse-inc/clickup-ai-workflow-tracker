@@ -1,8 +1,10 @@
 package orchestrator
 
 import (
+	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -83,6 +85,100 @@ func TestRunningTaskIDs_Empty(t *testing.T) {
 	ids := s.RunningTaskIDs()
 	if len(ids) != 0 {
 		t.Fatalf("expected 0 running tasks, got %d", len(ids))
+	}
+}
+
+func TestActiveCount(t *testing.T) {
+	s := NewAgentState()
+
+	if s.ActiveCount() != 0 {
+		t.Fatalf("expected 0 active count initially, got %d", s.ActiveCount())
+	}
+
+	// Claim は claimed に追加される
+	s.Claim("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after claim, got %d", s.ActiveCount())
+	}
+
+	// MarkRunning は runningTasks に追加するが claimed は残るため、重複カウントしない
+	s.MarkRunning("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after mark running, got %d", s.ActiveCount())
+	}
+
+	// 別タスクを Claim
+	s.Claim("task-2")
+	if s.ActiveCount() != 2 {
+		t.Fatalf("expected 2 after second claim, got %d", s.ActiveCount())
+	}
+
+	s.Release("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after release, got %d", s.ActiveCount())
+	}
+
+	s.Release("task-2")
+	if s.ActiveCount() != 0 {
+		t.Fatalf("expected 0 after all released, got %d", s.ActiveCount())
+	}
+}
+
+func TestClaimIfUnderLimit(t *testing.T) {
+	s := NewAgentState()
+
+	// 上限なし（0）の場合は常に成功
+	if !s.ClaimIfUnderLimit("task-1", 0) {
+		t.Fatal("expected ClaimIfUnderLimit to succeed with no limit")
+	}
+	s.Release("task-1")
+
+	// 上限 2 で 2 件まで claim できる
+	if !s.ClaimIfUnderLimit("task-1", 2) {
+		t.Fatal("expected first claim to succeed")
+	}
+	if !s.ClaimIfUnderLimit("task-2", 2) {
+		t.Fatal("expected second claim to succeed")
+	}
+
+	// 上限に達したら失敗
+	if s.ClaimIfUnderLimit("task-3", 2) {
+		t.Fatal("expected third claim to fail (limit reached)")
+	}
+
+	// 既クレーム済みタスクも失敗
+	if s.ClaimIfUnderLimit("task-1", 2) {
+		t.Fatal("expected already-claimed task to fail")
+	}
+
+	// 解放後は再び claim できる
+	s.Release("task-1")
+	if !s.ClaimIfUnderLimit("task-3", 2) {
+		t.Fatal("expected claim to succeed after release")
+	}
+}
+
+func TestClaimIfUnderLimit_ConcurrentRace(t *testing.T) {
+	// 上限 1 で複数 goroutine が同時に claim しても超えないことを確認
+	s := NewAgentState()
+	const goroutines = 100
+
+	var wg sync.WaitGroup
+	var claimedCount atomic.Int32
+
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func() {
+			defer wg.Done()
+			if s.ClaimIfUnderLimit(fmt.Sprintf("task-%d", i), 1) {
+				claimedCount.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if s.ActiveCount() > 1 {
+		t.Fatalf("expected ActiveCount <= 1, got %d", s.ActiveCount())
 	}
 }
 

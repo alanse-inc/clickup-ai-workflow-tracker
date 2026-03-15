@@ -32,6 +32,32 @@ func (s *AgentState) Claim(taskID string) bool {
 	return true
 }
 
+// ClaimIfUnderLimit は上限チェックとクレームを原子的に行う。
+// maxConcurrent が 0 の場合は上限なし。既にクレーム済みまたは上限到達なら false を返す。
+func (s *AgentState) ClaimIfUnderLimit(taskID string, maxConcurrent int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.claimed[taskID]; ok {
+		return false
+	}
+
+	if maxConcurrent > 0 {
+		count := len(s.claimed)
+		for id := range s.runningTasks {
+			if _, ok := s.claimed[id]; !ok {
+				count++
+			}
+		}
+		if count >= maxConcurrent {
+			return false
+		}
+	}
+
+	s.claimed[taskID] = struct{}{}
+	return true
+}
+
 // MarkRunning はタスクを実行中としてマークする
 func (s *AgentState) MarkRunning(taskID string) {
 	s.mu.Lock()
@@ -61,6 +87,21 @@ func (s *AgentState) IsClaimedOrRunning(taskID string) bool {
 		return true
 	}
 	return false
+}
+
+// ActiveCount はクレーム済みまたは実行中のタスク数を返す
+func (s *AgentState) ActiveCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// claimed をベースにして runningTasks のうち claimed に無いものだけ加算
+	count := len(s.claimed)
+	for id := range s.runningTasks {
+		if _, ok := s.claimed[id]; !ok {
+			count++
+		}
+	}
+	return count
 }
 
 // RunningTaskIDs は実行中のタスクIDリストを返す

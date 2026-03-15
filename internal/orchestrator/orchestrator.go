@@ -22,18 +22,26 @@ type WorkflowDispatcher interface {
 	TriggerWorkflow(ctx context.Context, taskID string, phase string, statusOnSuccess string, statusOnError string) error
 }
 
+// Config は Orchestrator の設定を保持する
+type Config struct {
+	PollInterval       time.Duration
+	StatusMapping      clickup.StatusMapping
+	MaxConcurrentTasks int // 0 は無制限
+}
+
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
-	taskClient    TaskClient
-	dispatcher    WorkflowDispatcher
-	state         *AgentState
-	pollInterval  time.Duration
-	statusMapping clickup.StatusMapping
-	logger        *slog.Logger
-	retryTimers   map[string]*retryEntry
-	retryMu       sync.Mutex
-	ctx           context.Context
-	done          bool // shutdown が完了したかどうか
+	taskClient         TaskClient
+	dispatcher         WorkflowDispatcher
+	state              *AgentState
+	pollInterval       time.Duration
+	statusMapping      clickup.StatusMapping
+	logger             *slog.Logger
+	retryTimers        map[string]*retryEntry
+	retryMu            sync.Mutex
+	ctx                context.Context
+	done               bool // shutdown が完了したかどうか
+	maxConcurrentTasks int  // 0 は無制限
 }
 
 type retryEntry struct {
@@ -44,18 +52,19 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す
-func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration, sm clickup.StatusMapping, logger *slog.Logger) *Orchestrator {
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Orchestrator{
-		taskClient:    taskClient,
-		dispatcher:    dispatcher,
-		state:         NewAgentState(),
-		pollInterval:  pollInterval,
-		statusMapping: sm,
-		logger:        logger,
-		retryTimers:   make(map[string]*retryEntry),
+		taskClient:         taskClient,
+		dispatcher:         dispatcher,
+		state:              NewAgentState(),
+		pollInterval:       cfg.PollInterval,
+		statusMapping:      cfg.StatusMapping,
+		logger:             logger,
+		retryTimers:        make(map[string]*retryEntry),
+		maxConcurrentTasks: cfg.MaxConcurrentTasks,
 	}
 }
 
@@ -114,6 +123,10 @@ func (o *Orchestrator) tick(ctx context.Context) {
 	}
 
 	for _, task := range tasks {
+		if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
+			o.logger.Info("max concurrent tasks reached, skipping remaining tasks this tick", "limit", o.maxConcurrentTasks)
+			break
+		}
 		if o.statusMapping.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
 			o.dispatch(ctx, task, 1)
 		}
@@ -148,7 +161,7 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
 func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) {
-	if !o.state.Claim(task.ID) {
+	if !o.state.ClaimIfUnderLimit(task.ID, o.maxConcurrentTasks) {
 		o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return
 	}

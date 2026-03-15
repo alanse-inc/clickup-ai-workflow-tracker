@@ -239,7 +239,7 @@ func TestDispatch_NormalFlow(t *testing.T) {
 	o := New(fetcher, dispatcher, time.Second)
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForSpec}
-	o.dispatch(context.Background(), task)
+	o.dispatch(context.Background(), task, 1)
 
 	// Check status update
 	fetcher.mu.Lock()
@@ -287,7 +287,7 @@ func TestDispatch_AlreadyClaimed(t *testing.T) {
 	o.state.Claim("task-1")
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForSpec}
-	o.dispatch(context.Background(), task)
+	o.dispatch(context.Background(), task, 1)
 
 	dispatcher.mu.Lock()
 	defer dispatcher.mu.Unlock()
@@ -305,7 +305,7 @@ func TestDispatch_UpdateStatusError(t *testing.T) {
 	o := New(fetcher, dispatcher, time.Second)
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForSpec}
-	o.dispatch(context.Background(), task)
+	o.dispatch(context.Background(), task, 1)
 
 	// Task should be released
 	if o.state.IsClaimedOrRunning("task-1") {
@@ -330,7 +330,7 @@ func TestDispatch_TriggerWorkflowError(t *testing.T) {
 	o := New(fetcher, dispatcher, time.Second)
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForSpec}
-	o.dispatch(context.Background(), task)
+	o.dispatch(context.Background(), task, 1)
 
 	// Task should be released
 	if o.state.IsClaimedOrRunning("task-1") {
@@ -346,8 +346,8 @@ func TestDispatch_DuplicatePrevention(t *testing.T) {
 	o := New(fetcher, dispatcher, time.Second)
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForSpec}
-	o.dispatch(context.Background(), task)
-	o.dispatch(context.Background(), task) // second dispatch should be skipped
+	o.dispatch(context.Background(), task, 1)
+	o.dispatch(context.Background(), task, 1) // second dispatch should be skipped
 
 	dispatcher.mu.Lock()
 	defer dispatcher.mu.Unlock()
@@ -364,7 +364,7 @@ func TestDispatch_CodePhase(t *testing.T) {
 	o := New(fetcher, dispatcher, time.Second)
 
 	task := clickup.Task{ID: "task-1", Status: clickup.StatusReadyForCode}
-	o.dispatch(context.Background(), task)
+	o.dispatch(context.Background(), task, 1)
 
 	fetcher.mu.Lock()
 	if len(fetcher.updateCalls) != 1 || fetcher.updateCalls[0].Status != clickup.StatusImplementing {

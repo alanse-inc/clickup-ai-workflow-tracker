@@ -99,7 +99,7 @@ func (o *Orchestrator) tick(ctx context.Context) {
 
 	for _, task := range tasks {
 		if clickup.IsTriggerStatus(task.Status) {
-			o.dispatch(ctx, task)
+			o.dispatch(ctx, task, 1)
 		}
 	}
 }
@@ -130,8 +130,8 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 	}
 }
 
-// dispatch はタスクのディスパッチを行う
-func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task) {
+// dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
+func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) {
 	if !o.state.Claim(task.ID) {
 		slog.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return
@@ -149,7 +149,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task) {
 	if err := o.fetcher.UpdateTaskStatus(ctx, task.ID, processingStatus); err != nil {
 		slog.Error("failed to update task status", "task_id", task.ID, "phase", phaseStr, "status", processingStatus, "error", err)
 		o.state.Release(task.ID)
-		o.scheduleRetry(task.ID, phaseStr, 1, err)
+		o.scheduleRetry(task.ID, phaseStr, attempt, err)
 		return
 	}
 
@@ -162,7 +162,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task) {
 			slog.Error("failed to revert task status", "task_id", task.ID, "status", errorStatus, "error", revertErr)
 		}
 		o.state.Release(task.ID)
-		o.scheduleRetry(task.ID, phaseStr, 1, err)
+		o.scheduleRetry(task.ID, phaseStr, attempt, err)
 		return
 	}
 
@@ -238,7 +238,7 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 
 	if clickup.IsTriggerStatus(task.Status) {
 		slog.Info("retrying dispatch", "task_id", taskID, "phase", phase, "attempt", attempt)
-		o.dispatch(ctx, *task)
+		o.dispatch(ctx, *task, attempt+1)
 	} else {
 		slog.Info("task no longer in trigger status, releasing", "task_id", taskID, "status", task.Status)
 		o.state.Release(taskID)

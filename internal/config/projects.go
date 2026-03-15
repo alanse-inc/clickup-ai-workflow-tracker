@@ -7,6 +7,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const defaultWorkflowFile = "agent.yml"
+
 // ProjectConfig は1つの ClickUp リスト - GitHub リポジトリペアの設定
 type ProjectConfig struct {
 	ClickUpListID      string `yaml:"clickup_list_id"`
@@ -74,7 +76,7 @@ func loadProjectsFromFile(path string) ([]ProjectConfig, error) {
 			return nil, fmt.Errorf("project[%d]: missing required fields: %v", i, missing)
 		}
 		if p.GitHubWorkflowFile == "" {
-			pf.Projects[i].GitHubWorkflowFile = "agent.yml"
+			pf.Projects[i].GitHubWorkflowFile = defaultWorkflowFile
 		}
 	}
 
@@ -98,7 +100,7 @@ func loadProjectsFromEnv(listID, owner, repo string) ([]ProjectConfig, error) {
 
 	workflowFile := os.Getenv("GITHUB_WORKFLOW_FILE")
 	if workflowFile == "" {
-		workflowFile = "agent.yml"
+		workflowFile = defaultWorkflowFile
 	}
 
 	return []ProjectConfig{

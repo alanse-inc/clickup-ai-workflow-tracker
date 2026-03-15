@@ -33,7 +33,8 @@ jobs:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
         run: |
-          RESPONSE=$(curl -fsS "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          RESPONSE=$(curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}")
           echo "task_name=$(echo "$RESPONSE" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           DELIMITER="CLICKUP_DESC_$(openssl rand -hex 8)"
@@ -88,18 +89,21 @@ jobs:
 
       - name: Update ClickUp description (SPEC)
         if: success() && inputs.phase == 'SPEC'
+        continue-on-error: true
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
           SPEC_RESULT: ${{ steps.claude_spec.outputs.result }}
         run: |
-          curl -fsS -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg desc "$SPEC_RESULT" '{description: $desc}')"
 
       - name: Set PR URL custom field (CODE)
         if: success() && inputs.phase == 'CODE'
+        continue-on-error: true
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
@@ -108,7 +112,8 @@ jobs:
         run: |
           PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
           if [ -n "$PR_URL" ]; then
-            curl -fsS -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
+            curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+              -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
               -H "Authorization: ${CLICKUP_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -d "$(jq -n --arg url "$PR_URL" '{value: $url}')"
@@ -123,21 +128,25 @@ jobs:
           TASK_ID: ${{ inputs.task_id }}
           STATUS: ${{ inputs.status_on_success }}
         run: |
-          curl -fsS -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg status "$STATUS" '{status: $status}')"
 
       - name: Record error to ClickUp
         if: failure()
+        continue-on-error: true
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
           FIELD_ID: ${{ secrets.CLICKUP_AGENT_ERROR_FIELD_ID }}
+          PHASE: ${{ inputs.phase }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          ERROR_MSG="Workflow failed: ${RUN_URL}"
-          curl -fsS -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
+          ERROR_MSG="Workflow failed [phase=${PHASE}, task=${TASK_ID}]: ${RUN_URL}"
+          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg val "$ERROR_MSG" '{value: $val}')"
@@ -149,7 +158,8 @@ jobs:
           TASK_ID: ${{ inputs.task_id }}
           STATUS: ${{ inputs.status_on_error }}
         run: |
-          curl -fsS -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg status "$STATUS" '{status: $status}')"

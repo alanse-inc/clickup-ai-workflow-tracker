@@ -120,6 +120,25 @@ go build -o bin/server ./cmd/server
 ./bin/server
 ```
 
+## Usage
+
+### 通常フロー（SPEC → CODE）
+
+1. ClickUp のカンバンでタスクを **「Idea Draft」** に作成し、概要を記述する
+2. タスクを **「Ready for Spec」** に移動する → AI が仕様書を自動作成
+3. **「Spec Review」** で仕様を確認・修正し、**「Ready for Code」** に移動する → AI がコードを実装し PR を作成
+4. **「PR Review」** でコードレビュー・マージする
+
+### ショートカットフロー（SPEC スキップ）
+
+軽微なバグ修正やリファクタリングなど仕様策定が不要なタスクでは、SPEC フェーズをスキップできます。
+
+1. ClickUp のカンバンでタスクを **「Idea Draft」** に作成し、やりたいことを記述する
+2. タスクを直接 **「Ready for Code」** に移動する → AI がタスク名と説明をもとにコードを実装し PR を作成
+3. **「PR Review」** でコードレビュー・マージする
+
+> **Tip**: ステータスの移動は ClickUp カンバンボード上でドラッグ＆ドロップするだけです。オーケストレータが 10 秒間隔でポーリングし、自動的に検知・ディスパッチします。
+
 ## Development
 
 開発フローについては [DEVELOPMENT.md](./DEVELOPMENT.md) を参照してください。

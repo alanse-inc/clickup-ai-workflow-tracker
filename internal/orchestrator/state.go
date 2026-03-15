@@ -68,15 +68,14 @@ func (s *AgentState) ActiveCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// claimed と runningTasks は重複する可能性があるため union で数える
-	seen := make(map[string]struct{}, len(s.claimed)+len(s.runningTasks))
-	for id := range s.claimed {
-		seen[id] = struct{}{}
-	}
+	// claimed をベースにして runningTasks のうち claimed に無いものだけ加算
+	count := len(s.claimed)
 	for id := range s.runningTasks {
-		seen[id] = struct{}{}
+		if _, ok := s.claimed[id]; !ok {
+			count++
+		}
 	}
-	return len(seen)
+	return count
 }
 
 // RunningTaskIDs は実行中のタスクIDリストを返す

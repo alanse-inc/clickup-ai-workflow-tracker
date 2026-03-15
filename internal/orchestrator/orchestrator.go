@@ -22,6 +22,13 @@ type WorkflowDispatcher interface {
 	TriggerWorkflow(ctx context.Context, taskID string, phase string, statusOnSuccess string, statusOnError string) error
 }
 
+// Config は Orchestrator の設定を保持する
+type Config struct {
+	PollInterval       time.Duration
+	StatusMapping      clickup.StatusMapping
+	MaxConcurrentTasks int // 0 は無制限
+}
+
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
 	taskClient         TaskClient
@@ -45,7 +52,7 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す
-func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration, sm clickup.StatusMapping, logger *slog.Logger, maxConcurrentTasks int) *Orchestrator {
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -53,11 +60,11 @@ func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time
 		taskClient:         taskClient,
 		dispatcher:         dispatcher,
 		state:              NewAgentState(),
-		pollInterval:       pollInterval,
-		statusMapping:      sm,
+		pollInterval:       cfg.PollInterval,
+		statusMapping:      cfg.StatusMapping,
 		logger:             logger,
 		retryTimers:        make(map[string]*retryEntry),
-		maxConcurrentTasks: maxConcurrentTasks,
+		maxConcurrentTasks: cfg.MaxConcurrentTasks,
 	}
 }
 
@@ -117,10 +124,6 @@ func (o *Orchestrator) tick(ctx context.Context) {
 
 	for _, task := range tasks {
 		if o.statusMapping.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
-			if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
-				o.logger.Info("max concurrent tasks reached, skipping dispatch", "task_id", task.ID, "limit", o.maxConcurrentTasks)
-				break
-			}
 			o.dispatch(ctx, task, 1)
 		}
 	}
@@ -154,6 +157,11 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
 func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) {
+	if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
+		o.logger.Info("max concurrent tasks reached, skipping dispatch", "task_id", task.ID, "limit", o.maxConcurrentTasks)
+		return
+	}
+
 	if !o.state.Claim(task.ID) {
 		o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return

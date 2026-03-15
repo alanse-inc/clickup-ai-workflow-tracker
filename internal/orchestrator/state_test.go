@@ -99,7 +99,7 @@ func TestActiveCount(t *testing.T) {
 		t.Fatalf("expected 1 after claim, got %d", s.ActiveCount())
 	}
 
-	// MarkRunning で claimed → runningTasks に移動するが、重複カウントしない
+	// MarkRunning は runningTasks に追加するが claimed は残るため、重複カウントしない
 	s.MarkRunning("task-1")
 	if s.ActiveCount() != 1 {
 		t.Fatalf("expected 1 after mark running, got %d", s.ActiveCount())

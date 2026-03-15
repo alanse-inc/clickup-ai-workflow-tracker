@@ -1,7 +1,8 @@
 package logging
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"log/slog"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestNewLogger(t *testing.T) {
 	}
 }
 
-func TestWithTaskContext(t *testing.T) {
+func TestTaskLogger(t *testing.T) {
 	tests := []struct {
 		name   string
 		taskID string
@@ -35,39 +36,26 @@ func TestWithTaskContext(t *testing.T) {
 	}{
 		{name: "spec phase", taskID: "task-001", phase: "SPEC"},
 		{name: "code phase", taskID: "task-002", phase: "CODE"},
-		{name: "empty values", taskID: "", phase: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			newCtx := WithTaskContext(ctx, tt.taskID, tt.phase)
+			var buf bytes.Buffer
+			base := slog.New(slog.NewJSONHandler(&buf, nil))
+			logger := TaskLogger(base, tt.taskID, tt.phase)
 
-			if newCtx == nil {
-				t.Fatal("expected non-nil context")
-			}
+			logger.Info("test message")
 
-			attrs := TaskAttrsFromContext(newCtx)
-			if attrs == nil {
-				t.Fatal("expected non-nil attrs from context")
+			var entry map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+				t.Fatalf("failed to parse log entry: %v", err)
 			}
-			if len(attrs) != 2 {
-				t.Fatalf("expected 2 attrs, got %d", len(attrs))
+			if entry["task_id"] != tt.taskID {
+				t.Errorf("task_id = %q, want %q", entry["task_id"], tt.taskID)
 			}
-			if attrs[0].Key != "task_id" || attrs[0].Value.String() != tt.taskID {
-				t.Errorf("task_id attr = %q, want %q", attrs[0].Value.String(), tt.taskID)
-			}
-			if attrs[1].Key != "phase" || attrs[1].Value.String() != tt.phase {
-				t.Errorf("phase attr = %q, want %q", attrs[1].Value.String(), tt.phase)
+			if entry["phase"] != tt.phase {
+				t.Errorf("phase = %q, want %q", entry["phase"], tt.phase)
 			}
 		})
-	}
-}
-
-func TestTaskAttrsFromContext_Empty(t *testing.T) {
-	ctx := context.Background()
-	attrs := TaskAttrsFromContext(ctx)
-	if attrs != nil {
-		t.Errorf("expected nil attrs from empty context, got %v", attrs)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
+	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/logging"
 )
 
 // TaskClient は ClickUp のタスク操作を行うインターフェース
@@ -23,14 +24,16 @@ type WorkflowDispatcher interface {
 
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
-	taskClient   TaskClient
-	dispatcher   WorkflowDispatcher
-	state        *AgentState
-	pollInterval time.Duration
-	retryTimers  map[string]*retryEntry
-	retryMu      sync.Mutex
-	ctx          context.Context
-	done         bool // shutdown が完了したかどうか
+	taskClient    TaskClient
+	dispatcher    WorkflowDispatcher
+	state         *AgentState
+	pollInterval  time.Duration
+	statusMapping clickup.StatusMapping
+	logger        *slog.Logger
+	retryTimers   map[string]*retryEntry
+	retryMu       sync.Mutex
+	ctx           context.Context
+	done          bool // shutdown が完了したかどうか
 }
 
 type retryEntry struct {
@@ -41,19 +44,21 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す
-func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration) *Orchestrator {
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration, sm clickup.StatusMapping, logger *slog.Logger) *Orchestrator {
 	return &Orchestrator{
-		taskClient:   taskClient,
-		dispatcher:   dispatcher,
-		state:        NewAgentState(),
-		pollInterval: pollInterval,
-		retryTimers:  make(map[string]*retryEntry),
+		taskClient:    taskClient,
+		dispatcher:    dispatcher,
+		state:         NewAgentState(),
+		pollInterval:  pollInterval,
+		statusMapping: sm,
+		logger:        logger,
+		retryTimers:   make(map[string]*retryEntry),
 	}
 }
 
 // Run はメインポーリングループ。即時ティック実行後、ctx がキャンセルされるまで pollInterval ごとにティック実行する
 func (o *Orchestrator) Run(ctx context.Context) {
-	slog.Info("orchestrator started", "poll_interval", o.pollInterval.String())
+	o.logger.Info("orchestrator started", "poll_interval", o.pollInterval.String())
 
 	o.ctx = ctx
 
@@ -67,7 +72,7 @@ func (o *Orchestrator) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			o.shutdown()
-			slog.Info("orchestrator stopped")
+			o.logger.Info("orchestrator stopped")
 			return
 		case <-ticker.C:
 			o.tick(ctx)
@@ -101,12 +106,12 @@ func (o *Orchestrator) tick(ctx context.Context) {
 
 	tasks, err := o.taskClient.GetTasks(ctx)
 	if err != nil {
-		slog.Error("failed to fetch tasks", "error", err)
+		o.logger.Error("failed to fetch tasks", "error", err)
 		return
 	}
 
 	for _, task := range tasks {
-		if clickup.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
+		if o.statusMapping.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
 			o.dispatch(ctx, task, 1)
 		}
 	}
@@ -118,22 +123,22 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 	for _, taskID := range runningIDs {
 		task, err := o.taskClient.GetTask(ctx, taskID)
 		if err != nil {
-			slog.Warn("failed to get task for reconciliation, skipping", "task_id", taskID, "error", err)
+			o.logger.Warn("failed to get task for reconciliation, skipping", "task_id", taskID, "error", err)
 			continue
 		}
 
-		if clickup.IsTerminalStatus(task.Status) {
-			slog.Info("task reached terminal status, releasing", "task_id", taskID, "status", task.Status)
+		if o.statusMapping.IsTerminalStatus(task.Status) {
+			o.logger.Info("task reached terminal status, releasing", "task_id", taskID, "status", task.Status)
 			o.state.Release(taskID)
 			continue
 		}
 
-		if clickup.IsProcessingStatus(task.Status) {
+		if o.statusMapping.IsProcessingStatus(task.Status) {
 			continue
 		}
 
 		// 処理中でも終端でもない場合（トリガー状態に戻った場合や手動変更を含む）はリリース
-		slog.Info("reconciliation_release", "task_id", taskID, "status", task.Status)
+		o.logger.Info("reconciliation_release", "task_id", taskID, "status", task.Status)
 		o.state.Release(taskID)
 	}
 }
@@ -141,33 +146,35 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
 func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) {
 	if !o.state.Claim(task.ID) {
-		slog.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
+		o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return
 	}
 
-	phase, err := clickup.PhaseFromStatus(task.Status)
+	phase, err := o.statusMapping.PhaseFromStatus(task.Status)
 	if err != nil {
-		slog.Error("failed to determine phase", "task_id", task.ID, "status", task.Status, "error", err)
+		o.logger.Error("failed to determine phase", "task_id", task.ID, "status", task.Status, "error", err)
 		o.state.Release(task.ID)
 		return
 	}
 
 	phaseStr := string(phase)
-	processingStatus := clickup.ProcessingStatusFor(phase)
+	tl := logging.TaskLogger(o.logger, task.ID, phaseStr)
+
+	processingStatus := o.statusMapping.ProcessingStatusFor(phase)
 	if err := o.taskClient.UpdateTaskStatus(ctx, task.ID, processingStatus); err != nil {
-		slog.Error("failed to update task status", "task_id", task.ID, "phase", phaseStr, "status", processingStatus, "error", err)
+		tl.Error("failed to update task status", "status", processingStatus, "error", err)
 		o.state.Release(task.ID)
 		o.scheduleRetry(task.ID, phaseStr, attempt, err)
 		return
 	}
 
-	successStatus := clickup.SuccessStatusFor(phase)
-	errorStatus := clickup.ErrorStatusFor(phase)
+	successStatus := o.statusMapping.SuccessStatusFor(phase)
+	errorStatus := o.statusMapping.ErrorStatusFor(phase)
 	if err := o.dispatcher.TriggerWorkflow(ctx, task.ID, phaseStr, successStatus, errorStatus); err != nil {
-		slog.Error("failed to trigger workflow", "task_id", task.ID, "phase", phaseStr, "error", err)
+		tl.Error("failed to trigger workflow", "error", err)
 		// ベストエフォートでステータスを元に戻す
 		if revertErr := o.taskClient.UpdateTaskStatus(ctx, task.ID, errorStatus); revertErr != nil {
-			slog.Error("failed to revert task status", "task_id", task.ID, "status", errorStatus, "error", revertErr)
+			tl.Error("failed to revert task status", "status", errorStatus, "error", revertErr)
 		}
 		o.state.Release(task.ID)
 		o.scheduleRetry(task.ID, phaseStr, attempt, err)
@@ -175,7 +182,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt 
 	}
 
 	o.state.MarkRunning(task.ID)
-	slog.Info("task dispatched", "task_id", task.ID, "phase", phaseStr)
+	tl.Info("task dispatched")
 }
 
 const (
@@ -211,7 +218,8 @@ func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, e
 
 	delayDuration := calcRetryDelay(attempt)
 
-	slog.Warn("scheduling retry", "task_id", taskID, "phase", phase, "attempt", attempt, "delay", delayDuration, "error", err)
+	tl := logging.TaskLogger(o.logger, taskID, phase)
+	tl.Warn("scheduling retry", "attempt", attempt, "delay", delayDuration, "error", err)
 
 	// 既存のタイマーがあればキャンセル
 	if existing, ok := o.retryTimers[taskID]; ok {
@@ -246,19 +254,21 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 	delete(o.retryTimers, taskID)
 	o.retryMu.Unlock()
 
+	tl := logging.TaskLogger(o.logger, taskID, phase)
+
 	ctx := o.ctx
 	task, err := o.taskClient.GetTask(ctx, taskID)
 	if err != nil {
-		slog.Error("failed to get task for retry", "task_id", taskID, "phase", phase, "attempt", attempt, "error", err)
+		tl.Error("failed to get task for retry", "attempt", attempt, "error", err)
 		o.scheduleRetry(taskID, phase, attempt+1, err)
 		return
 	}
 
-	if clickup.IsTriggerStatus(task.Status) {
-		slog.Info("retrying dispatch", "task_id", taskID, "phase", phase, "attempt", attempt)
+	if o.statusMapping.IsTriggerStatus(task.Status) {
+		tl.Info("retrying dispatch", "attempt", attempt)
 		o.dispatch(ctx, *task, attempt+1)
 	} else {
-		slog.Info("task no longer in trigger status, releasing", "task_id", taskID, "status", task.Status)
+		tl.Info("task no longer in trigger status, releasing", "status", task.Status)
 		o.state.Release(taskID)
 	}
 }

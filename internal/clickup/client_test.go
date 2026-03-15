@@ -136,6 +136,58 @@ func TestUpdateTaskStatus(t *testing.T) {
 	}
 }
 
+func TestGetStatuses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v2/list/list123" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		resp := map[string]any{
+			"statuses": []map[string]any{
+				{"status": "Ready For Spec"},
+				{"status": "Generating Spec"},
+				{"status": "Closed"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := newTestClient(server, "list123")
+	statuses, err := client.GetStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("GetStatuses() error = %v", err)
+	}
+
+	if len(statuses) != 3 {
+		t.Fatalf("expected 3 statuses, got %d", len(statuses))
+	}
+	// statuses should be lowercased
+	expected := []string{"ready for spec", "generating spec", "closed"}
+	for i, s := range expected {
+		if statuses[i] != s {
+			t.Errorf("statuses[%d] = %q, want %q", i, statuses[i], s)
+		}
+	}
+}
+
+func TestGetStatusesErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newTestClient(server, "list123")
+	_, err := client.GetStatuses(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+}
+
 func TestGetTasksErrorResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

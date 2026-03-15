@@ -3,39 +3,59 @@ package clickup
 import "testing"
 
 func TestIsTriggerStatus(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		status string
 		want   bool
 	}{
-		{StatusReadyForSpec, true},
-		{StatusReadyForCode, true},
-		{StatusIdeaDraft, false},
-		{StatusGeneratingSpec, false},
-		{StatusImplementing, false},
-		{StatusClosed, false},
+		{sm.ReadyForSpec, true},
+		{sm.ReadyForCode, true},
+		{"idea draft", false},
+		{sm.GeneratingSpec, false},
+		{sm.Implementing, false},
+		{sm.Closed, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			if got := IsTriggerStatus(tt.status); got != tt.want {
+			if got := sm.IsTriggerStatus(tt.status); got != tt.want {
 				t.Errorf("IsTriggerStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
 	}
 }
 
+func TestIsTriggerStatus_Custom(t *testing.T) {
+	sm := StatusMapping{
+		ReadyForSpec:   "custom ready spec",
+		GeneratingSpec: "custom generating",
+		SpecReview:     "custom review",
+		ReadyForCode:   "custom ready code",
+		Implementing:   "custom implementing",
+		PRReview:       "custom pr review",
+		Closed:         "custom closed",
+	}
+	if !sm.IsTriggerStatus("custom ready spec") {
+		t.Error("expected custom ready spec to be trigger status")
+	}
+	if sm.IsTriggerStatus("ready for spec") {
+		t.Error("expected default status not to match custom mapping")
+	}
+}
+
 func TestIsProcessingStatus(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		status string
 		want   bool
 	}{
-		{StatusGeneratingSpec, true},
-		{StatusImplementing, true},
-		{StatusReadyForSpec, false},
-		{StatusClosed, false},
+		{sm.GeneratingSpec, true},
+		{sm.Implementing, true},
+		{sm.ReadyForSpec, false},
+		{sm.Closed, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			if got := IsProcessingStatus(tt.status); got != tt.want {
+			if got := sm.IsProcessingStatus(tt.status); got != tt.want {
 				t.Errorf("IsProcessingStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
@@ -43,17 +63,18 @@ func TestIsProcessingStatus(t *testing.T) {
 }
 
 func TestIsTerminalStatus(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		status string
 		want   bool
 	}{
-		{StatusClosed, true},
-		{StatusReadyForSpec, false},
-		{StatusImplementing, false},
+		{sm.Closed, true},
+		{sm.ReadyForSpec, false},
+		{sm.Implementing, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			if got := IsTerminalStatus(tt.status); got != tt.want {
+			if got := sm.IsTerminalStatus(tt.status); got != tt.want {
 				t.Errorf("IsTerminalStatus(%q) = %v, want %v", tt.status, got, tt.want)
 			}
 		})
@@ -61,24 +82,25 @@ func TestIsTerminalStatus(t *testing.T) {
 }
 
 func TestPhaseFromStatus(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		status  string
 		want    Phase
 		wantErr bool
 	}{
-		{StatusReadyForSpec, PhaseSpec, false},
-		{StatusGeneratingSpec, PhaseSpec, false},
-		{StatusSpecReview, PhaseSpec, false},
-		{StatusReadyForCode, PhaseCode, false},
-		{StatusImplementing, PhaseCode, false},
-		{StatusPRReview, PhaseCode, false},
-		{StatusIdeaDraft, "", true},
-		{StatusClosed, "", true},
+		{sm.ReadyForSpec, PhaseSpec, false},
+		{sm.GeneratingSpec, PhaseSpec, false},
+		{sm.SpecReview, PhaseSpec, false},
+		{sm.ReadyForCode, PhaseCode, false},
+		{sm.Implementing, PhaseCode, false},
+		{sm.PRReview, PhaseCode, false},
+		{"idea draft", "", true},
+		{sm.Closed, "", true},
 		{"unknown", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			got, err := PhaseFromStatus(tt.status)
+			got, err := sm.PhaseFromStatus(tt.status)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PhaseFromStatus(%q) error = %v, wantErr %v", tt.status, err, tt.wantErr)
 				return
@@ -91,17 +113,18 @@ func TestPhaseFromStatus(t *testing.T) {
 }
 
 func TestProcessingStatusFor(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		phase Phase
 		want  string
 	}{
-		{PhaseSpec, StatusGeneratingSpec},
-		{PhaseCode, StatusImplementing},
+		{PhaseSpec, sm.GeneratingSpec},
+		{PhaseCode, sm.Implementing},
 		{Phase("UNKNOWN"), ""},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {
-			if got := ProcessingStatusFor(tt.phase); got != tt.want {
+			if got := sm.ProcessingStatusFor(tt.phase); got != tt.want {
 				t.Errorf("ProcessingStatusFor(%q) = %q, want %q", tt.phase, got, tt.want)
 			}
 		})
@@ -109,17 +132,18 @@ func TestProcessingStatusFor(t *testing.T) {
 }
 
 func TestSuccessStatusFor(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		phase Phase
 		want  string
 	}{
-		{PhaseSpec, StatusSpecReview},
-		{PhaseCode, StatusPRReview},
+		{PhaseSpec, sm.SpecReview},
+		{PhaseCode, sm.PRReview},
 		{Phase("UNKNOWN"), ""},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {
-			if got := SuccessStatusFor(tt.phase); got != tt.want {
+			if got := sm.SuccessStatusFor(tt.phase); got != tt.want {
 				t.Errorf("SuccessStatusFor(%q) = %q, want %q", tt.phase, got, tt.want)
 			}
 		})
@@ -127,19 +151,37 @@ func TestSuccessStatusFor(t *testing.T) {
 }
 
 func TestErrorStatusFor(t *testing.T) {
+	sm := DefaultStatusMapping()
 	tests := []struct {
 		phase Phase
 		want  string
 	}{
-		{PhaseSpec, StatusReadyForSpec},
-		{PhaseCode, StatusReadyForCode},
+		{PhaseSpec, sm.ReadyForSpec},
+		{PhaseCode, sm.ReadyForCode},
 		{Phase("UNKNOWN"), ""},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.phase), func(t *testing.T) {
-			if got := ErrorStatusFor(tt.phase); got != tt.want {
+			if got := sm.ErrorStatusFor(tt.phase); got != tt.want {
 				t.Errorf("ErrorStatusFor(%q) = %q, want %q", tt.phase, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAllStatuses(t *testing.T) {
+	sm := DefaultStatusMapping()
+	statuses := sm.AllStatuses()
+	if len(statuses) != 7 {
+		t.Fatalf("expected 7 statuses, got %d", len(statuses))
+	}
+	expected := []string{
+		"ready for spec", "generating spec", "spec review",
+		"ready for code", "implementing", "pr review", "closed",
+	}
+	for i, s := range expected {
+		if statuses[i] != s {
+			t.Errorf("AllStatuses()[%d] = %q, want %q", i, statuses[i], s)
+		}
 	}
 }

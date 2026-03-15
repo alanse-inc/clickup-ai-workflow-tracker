@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
 )
 
 type Config struct {
@@ -16,6 +18,7 @@ type Config struct {
 	GitHubRepo         string
 	GitHubWorkflowFile string // default: "agent.yml"
 	PollIntervalMS     int    // default: 10000
+	StatusMapping      clickup.StatusMapping
 }
 
 func Load() (*Config, error) {
@@ -61,6 +64,23 @@ func Load() (*Config, error) {
 		}
 		cfg.PollIntervalMS = parsed
 	}
+
+	sm := clickup.DefaultStatusMapping()
+	statusEnvs := map[string]*string{
+		"CLICKUP_STATUS_READY_FOR_SPEC":  &sm.ReadyForSpec,
+		"CLICKUP_STATUS_GENERATING_SPEC": &sm.GeneratingSpec,
+		"CLICKUP_STATUS_SPEC_REVIEW":     &sm.SpecReview,
+		"CLICKUP_STATUS_READY_FOR_CODE":  &sm.ReadyForCode,
+		"CLICKUP_STATUS_IMPLEMENTING":    &sm.Implementing,
+		"CLICKUP_STATUS_PR_REVIEW":       &sm.PRReview,
+		"CLICKUP_STATUS_CLOSED":          &sm.Closed,
+	}
+	for envKey, field := range statusEnvs {
+		if v := os.Getenv(envKey); v != "" {
+			*field = v
+		}
+	}
+	cfg.StatusMapping = sm
 
 	return cfg, nil
 }

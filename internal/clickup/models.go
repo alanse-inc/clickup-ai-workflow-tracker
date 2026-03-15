@@ -21,40 +21,64 @@ const (
 	PhaseCode Phase = "CODE"
 )
 
-// ステータス定数
-// TODO: ステータス名を環境変数で設定可能にし、起動時に ClickUp ボード上に存在するか検証する
-const (
-	StatusIdeaDraft      = "idea draft"
-	StatusReadyForSpec   = "ready for spec"
-	StatusGeneratingSpec = "generating spec"
-	StatusSpecReview     = "spec review"
-	StatusReadyForCode   = "ready for code"
-	StatusImplementing   = "implementing"
-	StatusPRReview       = "pr review"
-	StatusClosed         = "closed"
-)
+// StatusMapping はClickUpステータス名のマッピングを保持する
+type StatusMapping struct {
+	ReadyForSpec   string
+	GeneratingSpec string
+	SpecReview     string
+	ReadyForCode   string
+	Implementing   string
+	PRReview       string
+	Closed         string
+}
+
+// DefaultStatusMapping はデフォルトのステータスマッピングを返す
+func DefaultStatusMapping() StatusMapping {
+	return StatusMapping{
+		ReadyForSpec:   "ready for spec",
+		GeneratingSpec: "generating spec",
+		SpecReview:     "spec review",
+		ReadyForCode:   "ready for code",
+		Implementing:   "implementing",
+		PRReview:       "pr review",
+		Closed:         "closed",
+	}
+}
+
+// AllStatuses はマッピング内の全ステータスをスライスで返す
+func (sm StatusMapping) AllStatuses() []string {
+	return []string{
+		sm.ReadyForSpec,
+		sm.GeneratingSpec,
+		sm.SpecReview,
+		sm.ReadyForCode,
+		sm.Implementing,
+		sm.PRReview,
+		sm.Closed,
+	}
+}
 
 // IsTriggerStatus はトリガー対象のステータスかどうかを返す
-func IsTriggerStatus(status string) bool {
-	return status == StatusReadyForSpec || status == StatusReadyForCode
+func (sm StatusMapping) IsTriggerStatus(status string) bool {
+	return status == sm.ReadyForSpec || status == sm.ReadyForCode
 }
 
 // IsProcessingStatus は処理中ステータスかどうかを返す
-func IsProcessingStatus(status string) bool {
-	return status == StatusGeneratingSpec || status == StatusImplementing
+func (sm StatusMapping) IsProcessingStatus(status string) bool {
+	return status == sm.GeneratingSpec || status == sm.Implementing
 }
 
 // IsTerminalStatus は終端ステータスかどうかを返す
-func IsTerminalStatus(status string) bool {
-	return status == StatusClosed
+func (sm StatusMapping) IsTerminalStatus(status string) bool {
+	return status == sm.Closed
 }
 
 // PhaseFromStatus はステータスからフェーズを判定する
-func PhaseFromStatus(status string) (Phase, error) {
+func (sm StatusMapping) PhaseFromStatus(status string) (Phase, error) {
 	switch status {
-	case StatusReadyForSpec, StatusGeneratingSpec, StatusSpecReview:
+	case sm.ReadyForSpec, sm.GeneratingSpec, sm.SpecReview:
 		return PhaseSpec, nil
-	case StatusReadyForCode, StatusImplementing, StatusPRReview:
+	case sm.ReadyForCode, sm.Implementing, sm.PRReview:
 		return PhaseCode, nil
 	default:
 		return "", fmt.Errorf("cannot determine phase from status: %s", status)
@@ -62,36 +86,36 @@ func PhaseFromStatus(status string) (Phase, error) {
 }
 
 // ProcessingStatusFor はフェーズから処理中ステータスを返す
-func ProcessingStatusFor(phase Phase) string {
+func (sm StatusMapping) ProcessingStatusFor(phase Phase) string {
 	switch phase {
 	case PhaseSpec:
-		return StatusGeneratingSpec
+		return sm.GeneratingSpec
 	case PhaseCode:
-		return StatusImplementing
+		return sm.Implementing
 	default:
 		return ""
 	}
 }
 
 // SuccessStatusFor はフェーズから成功時ステータスを返す
-func SuccessStatusFor(phase Phase) string {
+func (sm StatusMapping) SuccessStatusFor(phase Phase) string {
 	switch phase {
 	case PhaseSpec:
-		return StatusSpecReview
+		return sm.SpecReview
 	case PhaseCode:
-		return StatusPRReview
+		return sm.PRReview
 	default:
 		return ""
 	}
 }
 
 // ErrorStatusFor はフェーズからエラー時戻しステータスを返す
-func ErrorStatusFor(phase Phase) string {
+func (sm StatusMapping) ErrorStatusFor(phase Phase) string {
 	switch phase {
 	case PhaseSpec:
-		return StatusReadyForSpec
+		return sm.ReadyForSpec
 	case PhaseCode:
-		return StatusReadyForCode
+		return sm.ReadyForCode
 	default:
 		return ""
 	}

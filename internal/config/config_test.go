@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
 )
 
 func setRequiredEnvs(t *testing.T) {
@@ -20,6 +22,10 @@ func clearEnvs(t *testing.T) {
 		"CLICKUP_API_TOKEN", "CLICKUP_LIST_ID",
 		"GITHUB_PAT", "GITHUB_OWNER", "GITHUB_REPO",
 		"GITHUB_WORKFLOW_FILE", "POLL_INTERVAL_MS",
+		"CLICKUP_STATUS_READY_FOR_SPEC", "CLICKUP_STATUS_GENERATING_SPEC",
+		"CLICKUP_STATUS_SPEC_REVIEW", "CLICKUP_STATUS_READY_FOR_CODE",
+		"CLICKUP_STATUS_IMPLEMENTING", "CLICKUP_STATUS_PR_REVIEW",
+		"CLICKUP_STATUS_CLOSED",
 	} {
 		t.Setenv(key, "")
 	}
@@ -132,6 +138,38 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "POLL_INTERVAL_MS must be positive",
+		},
+		{
+			name: "default status mapping",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+			},
+			check: func(t *testing.T, cfg *Config) {
+				want := clickup.DefaultStatusMapping()
+				if cfg.StatusMapping != want {
+					t.Errorf("StatusMapping = %+v, want %+v", cfg.StatusMapping, want)
+				}
+			},
+		},
+		{
+			name: "custom status mapping",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("CLICKUP_STATUS_READY_FOR_SPEC", "custom ready")
+				t.Setenv("CLICKUP_STATUS_CLOSED", "done")
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.StatusMapping.ReadyForSpec != "custom ready" {
+					t.Errorf("ReadyForSpec = %q, want %q", cfg.StatusMapping.ReadyForSpec, "custom ready")
+				}
+				if cfg.StatusMapping.Closed != "done" {
+					t.Errorf("Closed = %q, want %q", cfg.StatusMapping.Closed, "done")
+				}
+				// unchanged fields should keep defaults
+				if cfg.StatusMapping.GeneratingSpec != "generating spec" {
+					t.Errorf("GeneratingSpec = %q, want %q", cfg.StatusMapping.GeneratingSpec, "generating spec")
+				}
+			},
 		},
 	}
 

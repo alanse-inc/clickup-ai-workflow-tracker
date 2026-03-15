@@ -136,6 +136,41 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	return &task, nil
 }
 
+// apiListStatus はClickUp APIのリストステータス
+type apiListStatus struct {
+	Status string `json:"status"`
+}
+
+// apiListResponse はGetStatusesのレスポンス
+type apiListResponse struct {
+	Statuses []apiListStatus `json:"statuses"`
+}
+
+// GetStatuses はリストのステータス一覧を取得する
+func (c *Client) GetStatuses(ctx context.Context) ([]string, error) {
+	url := fmt.Sprintf("%s/list/%s", c.baseURL, c.listID)
+	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetching list statuses: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var result apiListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding list response: %w", err)
+	}
+
+	statuses := make([]string, len(result.Statuses))
+	for i, s := range result.Statuses {
+		statuses[i] = strings.ToLower(s.Status)
+	}
+	return statuses, nil
+}
+
 // UpdateTaskStatus はタスクのステータスを更新する
 func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
 	url := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)

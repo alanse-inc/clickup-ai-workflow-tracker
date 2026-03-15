@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,13 +12,12 @@ import (
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/config"
 	gh "github.com/rikeda71/clickup-ai-workflow-tracker/internal/github"
+	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/logging"
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/orchestrator"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger := logging.NewLogger(slog.LevelInfo)
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load()
@@ -27,11 +27,17 @@ func main() {
 	}
 
 	clickupClient := clickup.NewClient(cfg.ClickUpAPIToken, cfg.ClickUpListID)
+
+	if err := validateStatuses(clickupClient, cfg); err != nil {
+		slog.Error("status_validation_failed", "error", err)
+		os.Exit(1)
+	}
+
 	githubAuth := gh.NewPATAuthenticator(cfg.GitHubPAT)
 	githubDispatcher := gh.NewDispatcher(githubAuth, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
 	pollInterval := time.Duration(cfg.PollIntervalMS) * time.Millisecond
 
-	orch := orchestrator.New(clickupClient, githubDispatcher, pollInterval)
+	orch := orchestrator.New(clickupClient, githubDispatcher, pollInterval, cfg.StatusMapping, logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -44,4 +50,30 @@ func main() {
 
 	orch.Run(ctx)
 	slog.InfoContext(ctx, "service_stopped")
+}
+
+func validateStatuses(client *clickup.Client, cfg *config.Config) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	boardStatuses, err := client.GetStatuses(ctx)
+	if err != nil {
+		return fmt.Errorf("fetching ClickUp statuses: %w", err)
+	}
+
+	statusSet := make(map[string]struct{}, len(boardStatuses))
+	for _, s := range boardStatuses {
+		statusSet[s] = struct{}{}
+	}
+
+	var missing []string
+	for _, s := range cfg.StatusMapping.AllStatuses() {
+		if _, ok := statusSet[s]; !ok {
+			missing = append(missing, s)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("statuses not found on ClickUp board: %v", missing)
+	}
+	return nil
 }

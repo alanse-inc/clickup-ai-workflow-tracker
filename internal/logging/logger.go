@@ -1,12 +1,9 @@
 package logging
 
 import (
-	"context"
 	"log/slog"
 	"os"
 )
-
-type contextKey struct{}
 
 // NewLogger は JSON 構造化ロガーを作成する
 func NewLogger(level slog.Level) *slog.Logger {
@@ -16,21 +13,7 @@ func NewLogger(level slog.Level) *slog.Logger {
 	return slog.New(handler)
 }
 
-// WithTaskContext はタスク情報を context に付加する
-func WithTaskContext(ctx context.Context, taskID string, phase string) context.Context {
-	attrs := []slog.Attr{
-		slog.String("task_id", taskID),
-		slog.String("phase", phase),
-	}
-	return context.WithValue(ctx, contextKey{}, attrs)
-}
-
-// TaskAttrsFromContext は context に付加されたタスク属性（task_id, phase）を取得する。
-// WithTaskContext で設定されていない場合は nil を返す。
-func TaskAttrsFromContext(ctx context.Context) []slog.Attr {
-	attrs, ok := ctx.Value(contextKey{}).([]slog.Attr)
-	if !ok {
-		return nil
-	}
-	return attrs
+// TaskLogger はタスク情報を付加したサブロガーを返す
+func TaskLogger(logger *slog.Logger, taskID, phase string) *slog.Logger {
+	return logger.With("task_id", taskID, "phase", phase)
 }

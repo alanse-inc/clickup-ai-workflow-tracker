@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -218,7 +219,7 @@ func TestLoad(t *testing.T) {
 				t.Setenv("GITHUB_REPO", "test-repo")
 				t.Setenv("GITHUB_APP_ID", "12345")
 				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
-				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-private-key")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", base64.StdEncoding.EncodeToString([]byte("test-private-key")))
 			},
 			check: func(t *testing.T, cfg *Config) {
 				if cfg.AuthMode != "app" {
@@ -241,7 +242,7 @@ func TestLoad(t *testing.T) {
 				setRequiredEnvs(t)
 				t.Setenv("GITHUB_APP_ID", "12345")
 				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
-				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-key")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", base64.StdEncoding.EncodeToString([]byte("test-key")))
 			},
 			wantErr:     true,
 			errContains: "mutually exclusive",
@@ -281,10 +282,64 @@ func TestLoad(t *testing.T) {
 				t.Setenv("GITHUB_REPO", "test-repo")
 				t.Setenv("GITHUB_APP_ID", "not-a-number")
 				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
-				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-key")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", base64.StdEncoding.EncodeToString([]byte("test-key")))
 			},
 			wantErr:     true,
 			errContains: "invalid GITHUB_APP_ID",
+		},
+		{
+			name: "GitHub App with base64 encoded private key",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", base64.StdEncoding.EncodeToString([]byte("line1\nline2\nline3\n")))
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.GitHubAppPrivateKey != "line1\nline2\nline3\n" {
+					t.Errorf("GitHubAppPrivateKey = %q, want %q", cfg.GitHubAppPrivateKey, "line1\nline2\nline3\n")
+				}
+			},
+		},
+		{
+			name: "GitHub App with base64 key containing embedded newlines and spaces",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				// macOS base64 のデフォルト折り返し（76文字）を模倣した改行・空白入り base64
+				encoded := base64.StdEncoding.EncodeToString([]byte("line1\nline2\nline3\n"))
+				withWrapping := encoded[:10] + "\n" + encoded[10:20] + " " + encoded[20:]
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", withWrapping)
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.GitHubAppPrivateKey != "line1\nline2\nline3\n" {
+					t.Errorf("GitHubAppPrivateKey = %q, want %q", cfg.GitHubAppPrivateKey, "line1\nline2\nline3\n")
+				}
+			},
+		},
+		{
+			name: "GitHub App with invalid base64 private key",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", "not-valid-base64!!!")
+			},
+			wantErr:     true,
+			errContains: "invalid GITHUB_APP_PRIVATE_KEY",
 		},
 		{
 			name: "MAX_CONCURRENT_TASKS default is 0",

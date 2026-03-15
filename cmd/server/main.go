@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,13 +27,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	clickupClient := clickup.NewClient(cfg.ClickUpAPIToken, cfg.ClickUpListID)
-
-	if err := validateStatuses(clickupClient, cfg); err != nil {
-		slog.Error("status_validation_failed", "error", err)
-		os.Exit(1)
-	}
-
 	var githubAuth gh.Authenticator
 	switch cfg.AuthMode {
 	case "app":
@@ -45,25 +39,43 @@ func main() {
 	default:
 		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
 	}
-	githubDispatcher := gh.NewDispatcher(githubAuth, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	orchCfg := orchestrator.Config{
 		PollInterval:       time.Duration(cfg.PollIntervalMS) * time.Millisecond,
 		StatusMapping:      cfg.StatusMapping,
 		MaxConcurrentTasks: cfg.MaxConcurrentTasks,
 	}
 
-	orch := orchestrator.New(clickupClient, githubDispatcher, orchCfg, logger)
+	var wg sync.WaitGroup
+	for _, proj := range cfg.Projects {
+		clickupClient := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+		if err := validateStatuses(clickupClient, cfg); err != nil {
+			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
+			os.Exit(1)
+		}
 
-	slog.InfoContext(ctx, "service_started",
-		"poll_interval_ms", cfg.PollIntervalMS,
-		"clickup_list_id", cfg.ClickUpListID,
-		"github_repo", cfg.GitHubOwner+"/"+cfg.GitHubRepo,
-	)
+		githubDispatcher := gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
+		projectLogger := logger.With("project", proj.GitHubOwner+"/"+proj.GitHubRepo)
+		orch := orchestrator.New(clickupClient, githubDispatcher, orchCfg, projectLogger)
 
-	orch.Run(ctx)
+		slog.InfoContext(ctx, "service_started",
+			"poll_interval_ms", cfg.PollIntervalMS,
+			"clickup_list_id", proj.ClickUpListID,
+			"github_repo", proj.GitHubOwner+"/"+proj.GitHubRepo,
+		)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			orch.Run(ctx)
+		}()
+	}
+
+	wg.Wait()
 	slog.InfoContext(ctx, "service_stopped")
 }
 

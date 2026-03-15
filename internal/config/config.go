@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -13,46 +12,25 @@ import (
 
 type Config struct {
 	ClickUpAPIToken         string
-	ClickUpListID           string
 	GitHubPAT               string
 	AuthMode                string // "pat" or "app"
 	GitHubAppID             int64
 	GitHubAppInstallationID int64
 	GitHubAppPrivateKey     string
-	GitHubOwner             string
-	GitHubRepo              string
-	GitHubWorkflowFile      string // default: "agent.yml"
-	PollIntervalMS          int    // default: 10000
-	MaxConcurrentTasks      int    // default: 0 (unlimited)
+	PollIntervalMS          int // default: 10000
+	MaxConcurrentTasks      int // default: 0 (unlimited)
 	StatusMapping           clickup.StatusMapping
+	Projects                []ProjectConfig
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		GitHubWorkflowFile: "agent.yml",
-		PollIntervalMS:     10000,
+		PollIntervalMS: 10000,
 	}
 
-	required := map[string]*string{
-		"CLICKUP_API_TOKEN": &cfg.ClickUpAPIToken,
-		"CLICKUP_LIST_ID":   &cfg.ClickUpListID,
-		"GITHUB_OWNER":      &cfg.GitHubOwner,
-		"GITHUB_REPO":       &cfg.GitHubRepo,
-	}
-
-	var missing []string
-	for envKey, field := range required {
-		v := os.Getenv(envKey)
-		if v == "" {
-			missing = append(missing, envKey)
-		} else {
-			*field = v
-		}
-	}
-
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return nil, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	cfg.ClickUpAPIToken = os.Getenv("CLICKUP_API_TOKEN")
+	if cfg.ClickUpAPIToken == "" {
+		return nil, fmt.Errorf("missing required environment variable: CLICKUP_API_TOKEN")
 	}
 
 	// GitHub 認証: PAT と App は排他
@@ -60,13 +38,20 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	if v := os.Getenv("GITHUB_WORKFLOW_FILE"); v != "" {
-		cfg.GitHubWorkflowFile = v
-	}
-
 	if err := loadIntEnvs(cfg); err != nil {
 		return nil, err
 	}
+
+	// プロジェクト設定の読み込み
+	projectsFilePath := os.Getenv("PROJECTS_FILE")
+	if projectsFilePath == "" {
+		projectsFilePath = "projects.yml"
+	}
+	projects, err := loadProjects(projectsFilePath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Projects = projects
 
 	sm := clickup.DefaultStatusMapping()
 	statusEnvs := map[string]*string{

@@ -210,42 +210,58 @@ Idea Draft -> Ready for Code -> Implementing -> PR Review -> CLOSED
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
 | `CLICKUP_API_TOKEN` | Yes | ClickUp APIトークン |
-| `CLICKUP_LIST_ID` | Yes | 対象ClickUpリストID |
 | `GITHUB_PAT` | Yes (*1) | GitHub Personal Access Token |
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
 | `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key (base64 エンコードした PEM。macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem`) |
-| `GITHUB_OWNER` | Yes | GitHubリポジトリオーナー |
-| `GITHUB_REPO` | Yes | GitHubリポジトリ名 |
-| `GITHUB_WORKFLOW_FILE` | No | ワークフローファイル名 (default: `agent.yml`) |
 | `POLL_INTERVAL_MS` | No | ポーリング間隔ミリ秒 (default: `10000`) |
+| `MAX_CONCURRENT_TASKS` | No | 並行タスク数上限 (default: `0` = 無制限) |
+| `PROJECTS_FILE` | No | プロジェクト設定ファイルのパス (default: `projects.yml`) |
+| `CLICKUP_LIST_ID` | No (*2) | 対象ClickUpリストID |
+| `GITHUB_OWNER` | No (*2) | GitHubリポジトリオーナー |
+| `GITHUB_REPO` | No (*2) | GitHubリポジトリ名 |
+| `GITHUB_WORKFLOW_FILE` | No (*2) | ワークフローファイル名 (default: `agent.yml`) |
 
 *1: `GITHUB_PAT` と `GITHUB_APP_*` は排他。いずれか一方を設定する。
+
+*2: `PROJECTS_FILE` で指定された YAML ファイルが存在しない場合のフォールバック用。YAML ファイルが存在する場合はこれらの環境変数は使用不可（両方設定するとエラー）。
 
 ### 6.2 Project-Repository Binding
 
 本システムは、オーケストレータ（本リポジトリ）と作業対象リポジトリを分離した構成をとる。
 
 - **オーケストレータ**: 本リポジトリでビルド・デプロイされる Go サーバー。VPS 等で常駐稼働する。
-- **作業対象リポジトリ**: `GITHUB_OWNER` + `GITHUB_REPO` で指定される任意のリポジトリ。Claude Code が実際にコードを読み書きする対象。作業対象リポジトリに `agent.yml` を配置する必要がある。
+- **作業対象リポジトリ**: プロジェクト設定で指定される任意のリポジトリ。Claude Code が実際にコードを読み書きする対象。作業対象リポジトリに `agent.yml` を配置する必要がある。
 
-環境変数によって ClickUp リストと作業対象リポジトリを 1:1 で紐づける。
+#### 複数リポジトリ対応
 
-- `CLICKUP_LIST_ID` が 1 つの ClickUp リスト（= 1 つのプロジェクトボード）を指定する。
-- `GITHUB_OWNER` + `GITHUB_REPO` が 1 つの作業対象リポジトリを指定する。
-- 1 つのオーケストレータインスタンスは 1 つのリスト-リポジトリペアを管理する。
+1 つのオーケストレータインスタンスで複数の ClickUp リスト - GitHub リポジトリペアを管理できる。プロジェクト定義は YAML ファイル (`projects.yml`) で管理し、API トークンや認証情報は環境変数で管理する。
 
-複数リポジトリを管理する場合は、オーケストレータのインスタンスをリポジトリごとに起動する。
+**YAML 設定ファイル** (`PROJECTS_FILE` 環境変数でパス指定、default: `projects.yml`):
+
+```yaml
+projects:
+  - clickup_list_id: "list_1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    github_workflow_file: "agent.yml"  # optional, default: agent.yml
+  - clickup_list_id: "list_2"
+    github_owner: "org"
+    github_repo: "repo-b"
+```
+
+**環境変数フォールバック**: YAML ファイルが存在しない場合、従来の環境変数 `CLICKUP_LIST_ID` + `GITHUB_OWNER` + `GITHUB_REPO` から単一プロジェクトとして動作する。YAML ファイルと環境変数の両方が設定されている場合はエラー。
+
+プロジェクトごとに独立した goroutine でポーリングを実行する。`MAX_CONCURRENT_TASKS` は全プロジェクト合算のグローバル上限として機能する。
 
 ### 6.3 Startup Validation
 
 サービス起動時に以下を検証する:
 
 - `CLICKUP_API_TOKEN` が設定されている。
-- `CLICKUP_LIST_ID` が設定されている。
 - GitHub 認証: `GITHUB_PAT` または `GITHUB_APP_*`（`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`）のいずれか一方が設定されている（排他）。
-- `GITHUB_OWNER` が設定されている。
-- `GITHUB_REPO` が設定されている。
+- プロジェクト設定: YAML ファイルまたは環境変数フォールバック（`CLICKUP_LIST_ID`, `GITHUB_OWNER`, `GITHUB_REPO`）のいずれかでプロジェクトが1つ以上定義されている。両方が設定されている場合はエラー。
+- 各プロジェクトの ClickUp リストに必要なステータスが存在する。
 
 いずれかが欠落している場合、起動を失敗させエラーを出力する。
 
@@ -638,5 +654,5 @@ ClickUp Settings > Integrations > Slack で以下を設定する:
 
 以下は現時点ではスコープ外だが、将来的に検討する可能性がある:
 
-- 複数リポジトリ対応。
-- 並行エージェント実行の上限制御。
+- プロジェクトごとに異なる認証情報やステータスマッピングの設定。
+- 設定ファイルのホットリロード。

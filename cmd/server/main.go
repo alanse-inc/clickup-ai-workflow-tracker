@@ -40,6 +40,16 @@ func main() {
 		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
 	}
 
+	// 全プロジェクトのステータス検証を先に完了する
+	clickupClients := make([]*clickup.Client, len(cfg.Projects))
+	for i, proj := range cfg.Projects {
+		clickupClients[i] = clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
+		if err := validateStatuses(clickupClients[i], cfg); err != nil {
+			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
+			os.Exit(1)
+		}
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -49,18 +59,14 @@ func main() {
 		MaxConcurrentTasks: cfg.MaxConcurrentTasks,
 	}
 
+	// 全プロジェクトで共有する AgentState（グローバル並行タスク数制限）
+	sharedState := orchestrator.NewAgentState()
+
 	var wg sync.WaitGroup
-	for _, proj := range cfg.Projects {
-		clickupClient := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
-
-		if err := validateStatuses(clickupClient, cfg); err != nil {
-			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
-			os.Exit(1)
-		}
-
+	for i, proj := range cfg.Projects {
 		githubDispatcher := gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
 		projectLogger := logger.With("project", proj.GitHubOwner+"/"+proj.GitHubRepo)
-		orch := orchestrator.New(clickupClient, githubDispatcher, orchCfg, projectLogger)
+		orch := orchestrator.New(clickupClients[i], githubDispatcher, orchCfg, projectLogger, sharedState)
 
 		slog.InfoContext(ctx, "service_started",
 			"poll_interval_ms", cfg.PollIntervalMS,
@@ -69,10 +75,10 @@ func main() {
 		)
 
 		wg.Add(1)
-		go func() {
+		go func(o *orchestrator.Orchestrator) {
 			defer wg.Done()
-			orch.Run(ctx)
-		}()
+			o.Run(ctx)
+		}(orch)
 	}
 
 	wg.Wait()

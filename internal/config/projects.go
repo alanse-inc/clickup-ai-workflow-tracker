@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -25,9 +26,10 @@ type projectsFile struct {
 // YAML ファイルが存在する場合はそこから、存在しない場合は環境変数からフォールバックする。
 // 両方設定されている場合はエラー。
 func loadProjects(projectsFilePath string) ([]ProjectConfig, error) {
-	fileExists := false
-	if _, err := os.Stat(projectsFilePath); err == nil { //nolint:gosec // パスは環境変数 PROJECTS_FILE またはデフォルト値で制御される
-		fileExists = true
+	_, statErr := os.Stat(projectsFilePath) //nolint:gosec // パスは環境変数 PROJECTS_FILE またはデフォルト値で制御される
+	fileExists := statErr == nil
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("checking projects file %s: %w", projectsFilePath, statErr)
 	}
 
 	envListID := os.Getenv("CLICKUP_LIST_ID")

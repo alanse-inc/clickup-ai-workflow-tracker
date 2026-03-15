@@ -225,6 +225,12 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 		o.retryMu.Unlock()
 		return
 	}
+	// 現在の entry の attempt が一致するか確認（Stop 後に旧コールバックが走るレース対策）
+	entry, ok := o.retryTimers[taskID]
+	if !ok || entry.attempt != attempt {
+		o.retryMu.Unlock()
+		return
+	}
 	delete(o.retryTimers, taskID)
 	o.retryMu.Unlock()
 

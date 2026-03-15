@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const baseURL = "https://api.clickup.com/api/v2"
+const defaultBaseURL = "https://api.clickup.com/api/v2"
 
 const defaultHTTPTimeout = 30 * time.Second
 
@@ -19,6 +19,7 @@ const defaultHTTPTimeout = 30 * time.Second
 type Client struct {
 	apiToken   string
 	listID     string
+	baseURL    string
 	httpClient *http.Client
 }
 
@@ -27,6 +28,7 @@ func NewClient(apiToken, listID string) *Client {
 	return &Client{
 		apiToken:   apiToken,
 		listID:     listID,
+		baseURL:    defaultBaseURL,
 		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 	}
 }
@@ -89,7 +91,7 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body io.Read
 
 // GetTasks はリスト内の全タスクを取得する
 func (c *Client) GetTasks(ctx context.Context) ([]Task, error) {
-	url := fmt.Sprintf("%s/list/%s/task", baseURL, c.listID)
+	url := fmt.Sprintf("%s/list/%s/task", c.baseURL, c.listID)
 	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetching tasks: %w", err)
@@ -114,7 +116,7 @@ func (c *Client) GetTasks(ctx context.Context) ([]Task, error) {
 
 // GetTask は単一タスクを取得する
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
-	url := fmt.Sprintf("%s/task/%s", baseURL, taskID)
+	url := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
 	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetching task: %w", err)
@@ -136,7 +138,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 
 // UpdateTaskStatus はタスクのステータスを更新する
 func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
-	url := fmt.Sprintf("%s/task/%s", baseURL, taskID)
+	url := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
 	payload := struct {
 		Status string `json:"status"`
 	}{Status: status}

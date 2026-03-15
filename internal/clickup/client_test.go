@@ -3,13 +3,18 @@ package clickup
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
+
+func newTestClient(server *httptest.Server, listID string) *Client {
+	c := NewClient("test-token", listID)
+	c.baseURL = server.URL + "/api/v2"
+	c.httpClient = server.Client()
+	return c
+}
 
 func TestGetTasks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,9 +48,8 @@ func TestGetTasks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-	tasks, err := getTasksWithBaseURL(client, context.Background(), server.URL+"/api/v2")
+	client := newTestClient(server, "list123")
+	tasks, err := client.GetTasks(context.Background())
 	if err != nil {
 		t.Fatalf("GetTasks() error = %v", err)
 	}
@@ -91,10 +95,8 @@ func TestGetTask(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-
-	task, err := getTaskWithBaseURL(client, context.Background(), server.URL+"/api/v2", "task1")
+	client := newTestClient(server, "list123")
+	task, err := client.GetTask(context.Background(), "task1")
 	if err != nil {
 		t.Fatalf("GetTask() error = %v", err)
 	}
@@ -127,117 +129,48 @@ func TestUpdateTaskStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-
-	err := updateTaskStatusWithBaseURL(client, context.Background(), server.URL+"/api/v2", "task1", "implementing")
+	client := newTestClient(server, "list123")
+	err := client.UpdateTaskStatus(context.Background(), "task1", "implementing")
 	if err != nil {
 		t.Fatalf("UpdateTaskStatus() error = %v", err)
 	}
 }
 
 func TestGetTasksErrorResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-
-	_, err := getTasksWithBaseURL(client, context.Background(), server.URL+"/api/v2")
+	client := newTestClient(server, "list123")
+	_, err := client.GetTasks(context.Background())
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
 	}
 }
 
 func TestGetTaskErrorResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-
-	_, err := getTaskWithBaseURL(client, context.Background(), server.URL+"/api/v2", "nonexistent")
+	client := newTestClient(server, "list123")
+	_, err := client.GetTask(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
 	}
 }
 
 func TestUpdateTaskStatusErrorResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
 
-	client := NewClient("test-token", "list123")
-	client.httpClient = server.Client()
-
-	err := updateTaskStatusWithBaseURL(client, context.Background(), server.URL+"/api/v2", "task1", "closed")
+	client := newTestClient(server, "list123")
+	err := client.UpdateTaskStatus(context.Background(), "task1", "closed")
 	if err == nil {
 		t.Fatal("expected error for 403 response, got nil")
 	}
-}
-
-// テスト用ヘルパー: baseURLを差し替え可能にする
-func getTasksWithBaseURL(c *Client, ctx context.Context, base string) ([]Task, error) {
-	url := base + "/list/" + c.listID + "/task"
-	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var result apiTasksResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	tasks := make([]Task, len(result.Tasks))
-	for i, t := range result.Tasks {
-		tasks[i] = t.toTask()
-	}
-	return tasks, nil
-}
-
-func getTaskWithBaseURL(c *Client, ctx context.Context, base string, taskID string) (*Task, error) {
-	url := base + "/task/" + taskID
-	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var t apiTask
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, err
-	}
-
-	task := t.toTask()
-	return &task, nil
-}
-
-func updateTaskStatusWithBaseURL(c *Client, ctx context.Context, base string, taskID string, status string) error {
-	url := base + "/task/" + taskID
-	body := `{"status":"` + status + `"}`
-	resp, err := c.doRequest(ctx, http.MethodPut, url, strings.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-	return nil
 }

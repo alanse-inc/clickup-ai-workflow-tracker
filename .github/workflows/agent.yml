@@ -36,9 +36,10 @@ jobs:
           RESPONSE=$(curl -fsS "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}")
           echo "task_name=$(echo "$RESPONSE" | jq -r '.name')" >> "$GITHUB_OUTPUT"
-          echo "task_description<<EOF" >> "$GITHUB_OUTPUT"
+          DELIMITER="CLICKUP_DESC_$(openssl rand -hex 8)"
+          echo "task_description<<${DELIMITER}" >> "$GITHUB_OUTPUT"
           echo "$RESPONSE" | jq -r '.description // ""' >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code (SPEC)
         if: inputs.phase == 'SPEC'

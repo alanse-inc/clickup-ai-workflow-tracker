@@ -76,7 +76,7 @@ cp .env.example .env
 | `GITHUB_PAT` | Yes (*1) | GitHub Personal Access Token（classic: `repo`, `workflow` スコープ / fine-grained: Contents + Actions の Read and write） |
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
-| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（PEM 形式） |
+| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
 | `GITHUB_OWNER` | Yes | ターゲットリポジトリのオーナー |
 | `GITHUB_REPO` | Yes | ターゲットリポジトリ名 |
 | `GITHUB_WORKFLOW_FILE` | No | ワークフローファイル名（default: `agent.yml`） |
@@ -108,7 +108,7 @@ docker build -t clickup-tracker .
 docker run --env-file .env clickup-tracker
 ```
 
-> **Note**: Docker の `--env-file` はマルチライン値を扱えないため、GitHub App 認証（`GITHUB_APP_PRIVATE_KEY`）を Docker で使用するには PEM キーの base64 エンコード対応が必要です（[#25](https://github.com/alanse-inc/clickup-ai-workflow-tracker/issues/25) で対応予定）。現時点では PAT 認証を使用してください。
+> **Note**: Docker の `--env-file` はマルチライン値を扱えないため、GitHub App 認証（`GITHUB_APP_PRIVATE_KEY`）を使用する場合は base64 エンコードした値を設定してください。
 
 #### ローカル実行
 

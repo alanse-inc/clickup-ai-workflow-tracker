@@ -123,6 +123,10 @@ func (o *Orchestrator) tick(ctx context.Context) {
 	}
 
 	for _, task := range tasks {
+		if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
+			o.logger.Info("max concurrent tasks reached, skipping remaining tasks this tick", "limit", o.maxConcurrentTasks)
+			break
+		}
 		if o.statusMapping.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
 			o.dispatch(ctx, task, 1)
 		}
@@ -158,11 +162,7 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
 func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) {
 	if !o.state.ClaimIfUnderLimit(task.ID, o.maxConcurrentTasks) {
-		if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
-			o.logger.Info("max concurrent tasks reached, skipping dispatch", "task_id", task.ID, "limit", o.maxConcurrentTasks)
-		} else {
-			o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
-		}
+		o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return
 	}
 

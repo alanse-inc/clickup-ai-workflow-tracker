@@ -42,9 +42,18 @@ func marshalPrivateKeyPEM(key *rsa.PrivateKey) []byte {
 	})
 }
 
+func marshalPKCS8PEM(key *rsa.PrivateKey) []byte {
+	pkcs8Bytes, _ := x509.MarshalPKCS8PrivateKey(key)
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
+	})
+}
+
 func TestNewGitHubAppAuthenticator(t *testing.T) {
 	key := generateTestPrivateKey(t)
 	pemBytes := marshalPrivateKeyPEM(key)
+	pkcs8PEM := marshalPKCS8PEM(key)
 
 	tests := []struct {
 		name        string
@@ -55,10 +64,16 @@ func TestNewGitHubAppAuthenticator(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:       "valid key",
+			name:       "valid PKCS#1 key",
 			appID:      12345,
 			installID:  67890,
 			privateKey: pemBytes,
+		},
+		{
+			name:       "valid PKCS#8 key",
+			appID:      12345,
+			installID:  67890,
+			privateKey: pkcs8PEM,
 		},
 		{
 			name:        "invalid PEM",
@@ -74,7 +89,15 @@ func TestNewGitHubAppAuthenticator(t *testing.T) {
 			installID:   67890,
 			privateKey:  pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: []byte("bad")}),
 			wantErr:     true,
-			errContains: "failed to parse private key",
+			errContains: "failed to parse",
+		},
+		{
+			name:        "unsupported PEM type",
+			appID:       12345,
+			installID:   67890,
+			privateKey:  pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("data")}),
+			wantErr:     true,
+			errContains: "unsupported PEM block type",
 		},
 	}
 
@@ -114,7 +137,7 @@ func TestGitHubAppAuthenticator_SetAuth(t *testing.T) {
 		}
 
 		// installation token レスポンス
-		resp := installationTokenResponse{
+		resp := installationTokenResponse{ //nolint:gosec // test value
 			Token:     "ghs_test_installation_token",
 			ExpiresAt: time.Now().Add(1 * time.Hour),
 		}
@@ -182,7 +205,7 @@ func TestGitHubAppAuthenticator_TokenRefresh(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		resp := installationTokenResponse{
+		resp := installationTokenResponse{ //nolint:gosec // test value
 			Token:     "ghs_refreshed_token",
 			ExpiresAt: time.Now().Add(1 * time.Hour),
 		}

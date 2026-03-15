@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -61,16 +63,17 @@ type installationTokenResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// NewGitHubAppAuthenticator は新しい GitHubAppAuthenticator を生成する
+// NewGitHubAppAuthenticator は新しい GitHubAppAuthenticator を生成する。
+// PKCS#1 ("RSA PRIVATE KEY") と PKCS#8 ("PRIVATE KEY") の両方をサポートする。
 func NewGitHubAppAuthenticator(appID, installationID int64, privateKeyPEM []byte) (*GitHubAppAuthenticator, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
 	}
 
-	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	key, err := parseRSAPrivateKey(block)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %w", err)
+		return nil, err
 	}
 
 	return &GitHubAppAuthenticator{
@@ -81,20 +84,53 @@ func NewGitHubAppAuthenticator(appID, installationID int64, privateKeyPEM []byte
 	}, nil
 }
 
+func parseRSAPrivateKey(block *pem.Block) (*rsa.PrivateKey, error) {
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse PKCS#1 private key: %w", err)
+		}
+		return key, nil
+	case "PRIVATE KEY":
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
+		}
+		key, ok := parsed.(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("PKCS#8 key is not RSA")
+		}
+		return key, nil
+	default:
+		return nil, fmt.Errorf("unsupported PEM block type %q", block.Type)
+	}
+}
+
 // SetAuth はキャッシュされた installation token を使い Bearer ヘッダーを設定する。
 // トークンが未取得または期限切れの場合は自動で取得・リフレッシュする。
 func (a *GitHubAppAuthenticator) SetAuth(req *http.Request) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	needsRefresh := a.token == "" || time.Now().After(a.expiresAt.Add(-tokenRefreshMargin))
+	cachedToken := a.token
+	cachedExpiry := a.expiresAt
+	a.mu.Unlock()
 
-	if a.token == "" || time.Now().After(a.expiresAt.Add(-tokenRefreshMargin)) {
+	if needsRefresh {
 		if err := a.refreshToken(); err != nil {
 			slog.Error("failed to refresh installation token", "error", err)
+			// リフレッシュ失敗でも既存トークンがまだ有効ならフォールバック
+			if cachedToken != "" && time.Now().Before(cachedExpiry) {
+				req.Header.Set("Authorization", "Bearer "+cachedToken)
+			}
 			return
 		}
 	}
 
-	req.Header.Set("Authorization", "Bearer "+a.token)
+	a.mu.Lock()
+	token := a.token
+	a.mu.Unlock()
+	req.Header.Set("Authorization", "Bearer "+token)
 }
 
 func (a *GitHubAppAuthenticator) refreshToken() error {
@@ -120,7 +156,8 @@ func (a *GitHubAppAuthenticator) refreshToken() error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("unexpected status code %d", resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var tokenResp installationTokenResponse
@@ -128,8 +165,10 @@ func (a *GitHubAppAuthenticator) refreshToken() error {
 		return fmt.Errorf("decoding response: %w", err)
 	}
 
+	a.mu.Lock()
 	a.token = tokenResp.Token
 	a.expiresAt = tokenResp.ExpiresAt
+	a.mu.Unlock()
 	return nil
 }
 
@@ -155,7 +194,7 @@ func (a *GitHubAppAuthenticator) generateJWT() (string, error) {
 	signingInput := enc.EncodeToString(headerJSON) + "." + enc.EncodeToString(payloadJSON)
 
 	hash := sha256.Sum256([]byte(signingInput))
-	sig, err := rsa.SignPKCS1v15(nil, a.privateKey, crypto.SHA256, hash[:])
+	sig, err := rsa.SignPKCS1v15(rand.Reader, a.privateKey, crypto.SHA256, hash[:])
 	if err != nil {
 		return "", fmt.Errorf("signing JWT: %w", err)
 	}

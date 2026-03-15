@@ -10,8 +10,8 @@ import (
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
 )
 
-// mockTaskFetcher は TaskFetcher のモック
-type mockTaskFetcher struct {
+// mockTaskClient は TaskClient のモック
+type mockTaskClient struct {
 	mu            sync.Mutex
 	tasks         []clickup.Task
 	taskMap       map[string]*clickup.Task
@@ -28,7 +28,7 @@ type updateCall struct {
 	Status string
 }
 
-func (m *mockTaskFetcher) GetTasks(_ context.Context) ([]clickup.Task, error) {
+func (m *mockTaskClient) GetTasks(_ context.Context) ([]clickup.Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.getTasksCalls++
@@ -38,7 +38,7 @@ func (m *mockTaskFetcher) GetTasks(_ context.Context) ([]clickup.Task, error) {
 	return m.tasks, nil
 }
 
-func (m *mockTaskFetcher) GetTask(_ context.Context, taskID string) (*clickup.Task, error) {
+func (m *mockTaskClient) GetTask(_ context.Context, taskID string) (*clickup.Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.getTaskCalls = append(m.getTaskCalls, taskID)
@@ -51,7 +51,7 @@ func (m *mockTaskFetcher) GetTask(_ context.Context, taskID string) (*clickup.Ta
 	return nil, fmt.Errorf("task not found: %s", taskID)
 }
 
-func (m *mockTaskFetcher) UpdateTaskStatus(_ context.Context, taskID string, status string) error {
+func (m *mockTaskClient) UpdateTaskStatus(_ context.Context, taskID string, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.updateCalls = append(m.updateCalls, updateCall{TaskID: taskID, Status: status})
@@ -85,7 +85,7 @@ func (m *mockWorkflowDispatcher) TriggerWorkflow(_ context.Context, taskID strin
 }
 
 func TestTick_DispatchesTriggerStatusTasks(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		tasks: []clickup.Task{
 			{ID: "task-1", Status: clickup.StatusReadyForSpec},
 			{ID: "task-2", Status: clickup.StatusReadyForCode},
@@ -119,7 +119,7 @@ func TestTick_DispatchesTriggerStatusTasks(t *testing.T) {
 }
 
 func TestTick_GetTasksError(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		getTasksErr: fmt.Errorf("api error"),
 		taskMap:     map[string]*clickup.Task{},
 	}
@@ -137,7 +137,7 @@ func TestTick_GetTasksError(t *testing.T) {
 }
 
 func TestReconcile_TerminalStatusReleased(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{
 			"task-1": {ID: "task-1", Status: clickup.StatusClosed},
 		},
@@ -156,7 +156,7 @@ func TestReconcile_TerminalStatusReleased(t *testing.T) {
 }
 
 func TestReconcile_ProcessingStatusKept(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{
 			"task-1": {ID: "task-1", Status: clickup.StatusGeneratingSpec},
 		},
@@ -175,7 +175,7 @@ func TestReconcile_ProcessingStatusKept(t *testing.T) {
 }
 
 func TestReconcile_NonProcessingStatusReleased(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{
 			"task-1": {ID: "task-1", Status: clickup.StatusSpecReview},
 		},
@@ -194,7 +194,7 @@ func TestReconcile_NonProcessingStatusReleased(t *testing.T) {
 }
 
 func TestReconcile_TriggerStatusReleased(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{
 			"task-1": {ID: "task-1", Status: clickup.StatusReadyForSpec},
 		},
@@ -213,7 +213,7 @@ func TestReconcile_TriggerStatusReleased(t *testing.T) {
 }
 
 func TestReconcile_APIErrorSkips(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		getTaskErr: fmt.Errorf("api error"),
 		taskMap:    map[string]*clickup.Task{},
 	}
@@ -232,7 +232,7 @@ func TestReconcile_APIErrorSkips(t *testing.T) {
 }
 
 func TestDispatch_NormalFlow(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
@@ -278,7 +278,7 @@ func TestDispatch_NormalFlow(t *testing.T) {
 }
 
 func TestDispatch_AlreadyClaimed(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
@@ -297,7 +297,7 @@ func TestDispatch_AlreadyClaimed(t *testing.T) {
 }
 
 func TestDispatch_UpdateStatusError(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		updateErr: fmt.Errorf("update error"),
 		taskMap:   map[string]*clickup.Task{},
 	}
@@ -322,7 +322,7 @@ func TestDispatch_UpdateStatusError(t *testing.T) {
 }
 
 func TestDispatch_TriggerWorkflowError(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{
@@ -341,7 +341,7 @@ func TestDispatch_TriggerWorkflowError(t *testing.T) {
 }
 
 func TestDispatch_DuplicatePrevention(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
@@ -359,7 +359,7 @@ func TestDispatch_DuplicatePrevention(t *testing.T) {
 }
 
 func TestDispatch_CodePhase(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
@@ -392,7 +392,7 @@ func TestDispatch_CodePhase(t *testing.T) {
 }
 
 func TestRun_StopsOnContextCancel(t *testing.T) {
-	fetcher := &mockTaskFetcher{
+	fetcher := &mockTaskClient{
 		tasks:   []clickup.Task{},
 		taskMap: map[string]*clickup.Task{},
 	}

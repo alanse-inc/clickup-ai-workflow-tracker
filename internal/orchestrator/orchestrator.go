@@ -9,8 +9,8 @@ import (
 	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
 )
 
-// TaskFetcher は ClickUp からタスクを取得するインターフェース
-type TaskFetcher interface {
+// TaskClient は ClickUp のタスク操作を行うインターフェース
+type TaskClient interface {
 	GetTasks(ctx context.Context) ([]clickup.Task, error)
 	GetTask(ctx context.Context, taskID string) (*clickup.Task, error)
 	UpdateTaskStatus(ctx context.Context, taskID string, status string) error
@@ -23,7 +23,7 @@ type WorkflowDispatcher interface {
 
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
-	fetcher      TaskFetcher
+	taskClient   TaskClient
 	dispatcher   WorkflowDispatcher
 	state        *AgentState
 	pollInterval time.Duration
@@ -41,9 +41,9 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す
-func New(fetcher TaskFetcher, dispatcher WorkflowDispatcher, pollInterval time.Duration) *Orchestrator {
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration) *Orchestrator {
 	return &Orchestrator{
-		fetcher:      fetcher,
+		taskClient:   taskClient,
 		dispatcher:   dispatcher,
 		state:        NewAgentState(),
 		pollInterval: pollInterval,
@@ -99,7 +99,7 @@ func (o *Orchestrator) hasRetryPending(taskID string) bool {
 func (o *Orchestrator) tick(ctx context.Context) {
 	o.reconcile(ctx)
 
-	tasks, err := o.fetcher.GetTasks(ctx)
+	tasks, err := o.taskClient.GetTasks(ctx)
 	if err != nil {
 		slog.Error("failed to fetch tasks", "error", err)
 		return
@@ -116,7 +116,7 @@ func (o *Orchestrator) tick(ctx context.Context) {
 func (o *Orchestrator) reconcile(ctx context.Context) {
 	runningIDs := o.state.RunningTaskIDs()
 	for _, taskID := range runningIDs {
-		task, err := o.fetcher.GetTask(ctx, taskID)
+		task, err := o.taskClient.GetTask(ctx, taskID)
 		if err != nil {
 			slog.Warn("failed to get task for reconciliation, skipping", "task_id", taskID, "error", err)
 			continue
@@ -154,7 +154,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt 
 
 	phaseStr := string(phase)
 	processingStatus := clickup.ProcessingStatusFor(phase)
-	if err := o.fetcher.UpdateTaskStatus(ctx, task.ID, processingStatus); err != nil {
+	if err := o.taskClient.UpdateTaskStatus(ctx, task.ID, processingStatus); err != nil {
 		slog.Error("failed to update task status", "task_id", task.ID, "phase", phaseStr, "status", processingStatus, "error", err)
 		o.state.Release(task.ID)
 		o.scheduleRetry(task.ID, phaseStr, attempt, err)
@@ -166,7 +166,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt 
 	if err := o.dispatcher.TriggerWorkflow(ctx, task.ID, phaseStr, successStatus, errorStatus); err != nil {
 		slog.Error("failed to trigger workflow", "task_id", task.ID, "phase", phaseStr, "error", err)
 		// ベストエフォートでステータスを元に戻す
-		if revertErr := o.fetcher.UpdateTaskStatus(ctx, task.ID, errorStatus); revertErr != nil {
+		if revertErr := o.taskClient.UpdateTaskStatus(ctx, task.ID, errorStatus); revertErr != nil {
 			slog.Error("failed to revert task status", "task_id", task.ID, "status", errorStatus, "error", revertErr)
 		}
 		o.state.Release(task.ID)
@@ -243,7 +243,7 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 	o.retryMu.Unlock()
 
 	ctx := o.ctx
-	task, err := o.fetcher.GetTask(ctx, taskID)
+	task, err := o.taskClient.GetTask(ctx, taskID)
 	if err != nil {
 		slog.Error("failed to get task for retry", "task_id", taskID, "phase", phase, "attempt", attempt, "error", err)
 		o.scheduleRetry(taskID, phase, attempt+1, err)

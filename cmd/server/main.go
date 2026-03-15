@@ -27,7 +27,8 @@ func main() {
 	}
 
 	clickupClient := clickup.NewClient(cfg.ClickUpAPIToken, cfg.ClickUpListID)
-	githubDispatcher := gh.NewDispatcher(cfg.GitHubPAT, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
+	githubAuth := gh.NewPATAuthenticator(cfg.GitHubPAT)
+	githubDispatcher := gh.NewDispatcher(githubAuth, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
 	pollInterval := time.Duration(cfg.PollIntervalMS) * time.Millisecond
 
 	orch := orchestrator.New(clickupClient, githubDispatcher, pollInterval)

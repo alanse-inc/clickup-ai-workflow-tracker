@@ -71,7 +71,7 @@ func TestTriggerWorkflow(t *testing.T) {
 			}))
 			defer server.Close()
 
-			d := NewDispatcher("test-pat", "test-owner", "test-repo", "agent.yml")
+			d := NewDispatcher(NewPATAuthenticator("test-pat"), "test-owner", "test-repo", "agent.yml")
 			// httpClient のベースURLをモックサーバーに差し替え
 			d.httpClient = server.Client()
 			// URL をモックサーバーに向けるためにカスタムトランスポートを設定

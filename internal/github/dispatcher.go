@@ -18,7 +18,7 @@ const (
 
 // Dispatcher は GitHub Actions の workflow_dispatch イベントをトリガーする
 type Dispatcher struct {
-	pat          string
+	auth         Authenticator
 	owner        string
 	repo         string
 	workflowFile string
@@ -26,9 +26,9 @@ type Dispatcher struct {
 }
 
 // NewDispatcher は新しい Dispatcher を生成する
-func NewDispatcher(pat, owner, repo, workflowFile string) *Dispatcher {
+func NewDispatcher(auth Authenticator, owner, repo, workflowFile string) *Dispatcher {
 	return &Dispatcher{
-		pat:          pat,
+		auth:         auth,
 		owner:        owner,
 		repo:         repo,
 		workflowFile: workflowFile,
@@ -67,7 +67,7 @@ func (d *Dispatcher) TriggerWorkflow(ctx context.Context, taskID string, phase s
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+d.pat)
+	d.auth.SetAuth(req)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("Content-Type", "application/json")
 

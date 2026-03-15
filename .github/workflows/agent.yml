@@ -70,15 +70,18 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           prompt: |
-            以下の仕様に基づいてコードを実装し、PR を作成してください。
+            以下のタスク情報に基づいてコードを実装し、PR を作成してください。
+            タスクの説明が詳細な仕様書の場合はそれに従い、
+            簡易な説明やアイデアレベルの場合はリポジトリの既存コードを読み込み、
+            アーキテクチャ・コーディングスタイルを踏まえて適切に実装してください。
 
             タスク名: ${{ steps.fetch_task.outputs.task_name }}
-            仕様:
+            タスク内容:
             ${{ steps.fetch_task.outputs.task_description }}
 
             実装手順:
             1. feature/clickup-${{ inputs.task_id }} ブランチを作成
-            2. 仕様に基づいてコードを変更
+            2. タスク内容（仕様があればそれも含む）に基づいてコードを変更
             3. テストを実行して通ることを確認
             4. コミット＆Push
             5. gh pr create で PR を作成。description の末尾に必ず以下の行を含めること:

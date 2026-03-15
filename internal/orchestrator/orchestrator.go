@@ -24,16 +24,17 @@ type WorkflowDispatcher interface {
 
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
-	taskClient    TaskClient
-	dispatcher    WorkflowDispatcher
-	state         *AgentState
-	pollInterval  time.Duration
-	statusMapping clickup.StatusMapping
-	logger        *slog.Logger
-	retryTimers   map[string]*retryEntry
-	retryMu       sync.Mutex
-	ctx           context.Context
-	done          bool // shutdown が完了したかどうか
+	taskClient         TaskClient
+	dispatcher         WorkflowDispatcher
+	state              *AgentState
+	pollInterval       time.Duration
+	statusMapping      clickup.StatusMapping
+	logger             *slog.Logger
+	retryTimers        map[string]*retryEntry
+	retryMu            sync.Mutex
+	ctx                context.Context
+	done               bool // shutdown が完了したかどうか
+	maxConcurrentTasks int  // 0 は無制限
 }
 
 type retryEntry struct {
@@ -44,18 +45,19 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す
-func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration, sm clickup.StatusMapping, logger *slog.Logger) *Orchestrator {
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, pollInterval time.Duration, sm clickup.StatusMapping, logger *slog.Logger, maxConcurrentTasks int) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Orchestrator{
-		taskClient:    taskClient,
-		dispatcher:    dispatcher,
-		state:         NewAgentState(),
-		pollInterval:  pollInterval,
-		statusMapping: sm,
-		logger:        logger,
-		retryTimers:   make(map[string]*retryEntry),
+		taskClient:         taskClient,
+		dispatcher:         dispatcher,
+		state:              NewAgentState(),
+		pollInterval:       pollInterval,
+		statusMapping:      sm,
+		logger:             logger,
+		retryTimers:        make(map[string]*retryEntry),
+		maxConcurrentTasks: maxConcurrentTasks,
 	}
 }
 
@@ -115,6 +117,10 @@ func (o *Orchestrator) tick(ctx context.Context) {
 
 	for _, task := range tasks {
 		if o.statusMapping.IsTriggerStatus(task.Status) && !o.hasRetryPending(task.ID) {
+			if o.maxConcurrentTasks > 0 && o.state.ActiveCount() >= o.maxConcurrentTasks {
+				o.logger.Info("max concurrent tasks reached, skipping dispatch", "task_id", task.ID, "limit", o.maxConcurrentTasks)
+				break
+			}
 			o.dispatch(ctx, task, 1)
 		}
 	}

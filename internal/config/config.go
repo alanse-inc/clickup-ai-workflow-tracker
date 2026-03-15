@@ -22,6 +22,7 @@ type Config struct {
 	GitHubRepo              string
 	GitHubWorkflowFile      string // default: "agent.yml"
 	PollIntervalMS          int    // default: 10000
+	MaxConcurrentTasks      int    // default: 0 (unlimited)
 	StatusMapping           clickup.StatusMapping
 }
 
@@ -62,15 +63,8 @@ func Load() (*Config, error) {
 		cfg.GitHubWorkflowFile = v
 	}
 
-	if v := os.Getenv("POLL_INTERVAL_MS"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid POLL_INTERVAL_MS value %q: %w", v, err)
-		}
-		if parsed <= 0 {
-			return nil, fmt.Errorf("POLL_INTERVAL_MS must be positive, got %d", parsed)
-		}
-		cfg.PollIntervalMS = parsed
+	if err := loadIntEnvs(cfg); err != nil {
+		return nil, err
 	}
 
 	sm := clickup.DefaultStatusMapping()
@@ -95,6 +89,32 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadIntEnvs(cfg *Config) error {
+	if v := os.Getenv("POLL_INTERVAL_MS"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid POLL_INTERVAL_MS value %q: %w", v, err)
+		}
+		if parsed <= 0 {
+			return fmt.Errorf("POLL_INTERVAL_MS must be positive, got %d", parsed)
+		}
+		cfg.PollIntervalMS = parsed
+	}
+
+	if v := os.Getenv("MAX_CONCURRENT_TASKS"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid MAX_CONCURRENT_TASKS value %q: %w", v, err)
+		}
+		if parsed < 0 {
+			return fmt.Errorf("MAX_CONCURRENT_TASKS must be non-negative, got %d", parsed)
+		}
+		cfg.MaxConcurrentTasks = parsed
+	}
+
+	return nil
 }
 
 func loadGitHubAuth(cfg *Config) error {

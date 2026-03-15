@@ -86,6 +86,42 @@ func TestRunningTaskIDs_Empty(t *testing.T) {
 	}
 }
 
+func TestActiveCount(t *testing.T) {
+	s := NewAgentState()
+
+	if s.ActiveCount() != 0 {
+		t.Fatalf("expected 0 active count initially, got %d", s.ActiveCount())
+	}
+
+	// Claim は claimed に追加される
+	s.Claim("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after claim, got %d", s.ActiveCount())
+	}
+
+	// MarkRunning で claimed → runningTasks に移動するが、重複カウントしない
+	s.MarkRunning("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after mark running, got %d", s.ActiveCount())
+	}
+
+	// 別タスクを Claim
+	s.Claim("task-2")
+	if s.ActiveCount() != 2 {
+		t.Fatalf("expected 2 after second claim, got %d", s.ActiveCount())
+	}
+
+	s.Release("task-1")
+	if s.ActiveCount() != 1 {
+		t.Fatalf("expected 1 after release, got %d", s.ActiveCount())
+	}
+
+	s.Release("task-2")
+	if s.ActiveCount() != 0 {
+		t.Fatalf("expected 0 after all released, got %d", s.ActiveCount())
+	}
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	s := NewAgentState()
 	const goroutines = 100

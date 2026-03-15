@@ -48,7 +48,7 @@ func main() {
 	githubDispatcher := gh.NewDispatcher(githubAuth, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
 	pollInterval := time.Duration(cfg.PollIntervalMS) * time.Millisecond
 
-	orch := orchestrator.New(clickupClient, githubDispatcher, pollInterval, cfg.StatusMapping, logger)
+	orch := orchestrator.New(clickupClient, githubDispatcher, pollInterval, cfg.StatusMapping, logger, cfg.MaxConcurrentTasks)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

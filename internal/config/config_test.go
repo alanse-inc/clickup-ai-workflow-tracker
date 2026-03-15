@@ -286,6 +286,47 @@ func TestLoad(t *testing.T) {
 			wantErr:     true,
 			errContains: "invalid GITHUB_APP_ID",
 		},
+		{
+			name: "MAX_CONCURRENT_TASKS default is 0",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.MaxConcurrentTasks != 0 {
+					t.Errorf("MaxConcurrentTasks = %d, want 0", cfg.MaxConcurrentTasks)
+				}
+			},
+		},
+		{
+			name: "MAX_CONCURRENT_TASKS set to positive value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("MAX_CONCURRENT_TASKS", "5")
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.MaxConcurrentTasks != 5 {
+					t.Errorf("MaxConcurrentTasks = %d, want 5", cfg.MaxConcurrentTasks)
+				}
+			},
+		},
+		{
+			name: "MAX_CONCURRENT_TASKS invalid value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("MAX_CONCURRENT_TASKS", "not-a-number")
+			},
+			wantErr:     true,
+			errContains: "invalid MAX_CONCURRENT_TASKS",
+		},
+		{
+			name: "MAX_CONCURRENT_TASKS negative value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("MAX_CONCURRENT_TASKS", "-1")
+			},
+			wantErr:     true,
+			errContains: "MAX_CONCURRENT_TASKS must be non-negative",
+		},
 	}
 
 	for _, tt := range tests {

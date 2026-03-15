@@ -63,6 +63,22 @@ func (s *AgentState) IsClaimedOrRunning(taskID string) bool {
 	return false
 }
 
+// ActiveCount はクレーム済みまたは実行中のタスク数を返す
+func (s *AgentState) ActiveCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// claimed と runningTasks は重複する可能性があるため union で数える
+	seen := make(map[string]struct{}, len(s.claimed)+len(s.runningTasks))
+	for id := range s.claimed {
+		seen[id] = struct{}{}
+	}
+	for id := range s.runningTasks {
+		seen[id] = struct{}{}
+	}
+	return len(seen)
+}
+
 // RunningTaskIDs は実行中のタスクIDリストを返す
 func (s *AgentState) RunningTaskIDs() []string {
 	s.mu.RLock()

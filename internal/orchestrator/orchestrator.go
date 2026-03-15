@@ -298,6 +298,6 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 		_ = o.dispatch(ctx, *task, attempt+1)
 	} else {
 		tl.Info("task no longer in trigger status, releasing", "status", task.Status)
-		o.state.Release(taskID)
+		o.release(taskID)
 	}
 }

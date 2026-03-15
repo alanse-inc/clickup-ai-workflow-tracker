@@ -171,6 +171,22 @@ func TestLoad(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "status mapping normalizes case and whitespace",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("CLICKUP_STATUS_READY_FOR_SPEC", "  Ready For Spec  ")
+				t.Setenv("CLICKUP_STATUS_CLOSED", "DONE")
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.StatusMapping.ReadyForSpec != "ready for spec" {
+					t.Errorf("ReadyForSpec = %q, want %q", cfg.StatusMapping.ReadyForSpec, "ready for spec")
+				}
+				if cfg.StatusMapping.Closed != "done" {
+					t.Errorf("Closed = %q, want %q", cfg.StatusMapping.Closed, "done")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

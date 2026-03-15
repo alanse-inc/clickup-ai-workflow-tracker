@@ -77,7 +77,7 @@ func Load() (*Config, error) {
 	}
 	for envKey, field := range statusEnvs {
 		if v := os.Getenv(envKey); v != "" {
-			*field = v
+			*field = strings.ToLower(strings.TrimSpace(v))
 		}
 	}
 	cfg.StatusMapping = sm

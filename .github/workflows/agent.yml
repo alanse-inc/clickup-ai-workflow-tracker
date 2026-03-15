@@ -123,7 +123,7 @@ jobs:
           FIELD_ID: ${{ secrets.CLICKUP_PR_URL_FIELD_ID }}
           CODE_RESULT: ${{ steps.claude_code.outputs.result }}
         run: |
-          PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1 || true)
+          PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:])\]>,]+/pull/[0-9]+' | head -1 || true)
           if [ -n "$PR_URL" ]; then
             curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
               -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \

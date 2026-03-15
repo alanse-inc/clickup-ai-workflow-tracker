@@ -27,6 +27,7 @@ linters:
       - linters:
           - gocognit
           - unparam
+          - goconst
         path: _test\.go
 
 formatters:

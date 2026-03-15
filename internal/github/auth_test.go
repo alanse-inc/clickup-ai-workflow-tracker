@@ -27,7 +27,10 @@ func newTestRequest(t *testing.T) *http.Request {
 func TestPATAuthenticator_SetAuth(t *testing.T) {
 	auth := NewPATAuthenticator("ghp_test123")
 	req := newTestRequest(t)
-	auth.SetAuth(req)
+	err := auth.SetAuth(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	got := req.Header.Get("Authorization")
 	want := "Bearer ghp_test123"
@@ -168,12 +171,98 @@ func TestGitHubAppAuthenticator_SetAuth(t *testing.T) {
 	auth.baseURL = server.URL
 
 	req := newTestRequest(t)
-	auth.SetAuth(req)
+	err = auth.SetAuth(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	got := req.Header.Get("Authorization")
 	want := "Bearer ghs_test_installation_token"
 	if got != want {
 		t.Errorf("Authorization = %q, want %q", got, want)
+	}
+}
+
+func TestGitHubAppAuthenticator_SetAuth_Error(t *testing.T) {
+	key := generateTestPrivateKey(t)
+	pemBytes := marshalPrivateKeyPEM(key)
+
+	// トークン取得が常に失敗するモックサーバー
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"internal error"}`))
+	}))
+	defer server.Close()
+
+	auth, err := NewGitHubAppAuthenticator(12345, 67890, pemBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	auth.baseURL = server.URL
+
+	// キャッシュトークンなし + リフレッシュ失敗 → エラーが返る
+	req := newTestRequest(t)
+	err = auth.SetAuth(req)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to set auth") {
+		t.Errorf("error %q does not contain expected message", err.Error())
+	}
+	// Authorization ヘッダーが設定されていないことを確認
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization should be empty, got %q", got)
+	}
+}
+
+func TestGitHubAppAuthenticator_SetAuth_FallbackOnRefreshError(t *testing.T) {
+	key := generateTestPrivateKey(t)
+	pemBytes := marshalPrivateKeyPEM(key)
+
+	var callCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := callCount.Add(1)
+		if count == 1 {
+			// 初回は成功
+			resp := installationTokenResponse{ //nolint:gosec // test value
+				Token:     "ghs_valid_token",
+				ExpiresAt: time.Now().Add(1 * time.Hour),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(resp)
+		} else {
+			// 2回目以降は失敗
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	auth, err := NewGitHubAppAuthenticator(12345, 67890, pemBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	auth.baseURL = server.URL
+
+	// 初回: 成功
+	req1 := newTestRequest(t)
+	if err := auth.SetAuth(req1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// トークンを期限切れ間近にする（リフレッシュが試行されるが、まだ有効）
+	auth.mu.Lock()
+	auth.expiresAt = time.Now().Add(2 * time.Minute) // tokenRefreshMargin(5min) 以内だがまだ未来
+	auth.mu.Unlock()
+
+	// 2回目: リフレッシュ失敗 → キャッシュトークンにフォールバック → エラーなし
+	req2 := newTestRequest(t)
+	err = auth.SetAuth(req2)
+	if err != nil {
+		t.Fatalf("expected fallback to cached token, got error: %v", err)
+	}
+	if got := req2.Header.Get("Authorization"); got != "Bearer ghs_valid_token" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer ghs_valid_token")
 	}
 }
 
@@ -203,9 +292,13 @@ func TestGitHubAppAuthenticator_TokenCache(t *testing.T) {
 
 	// 2回呼んでも API は1回しか叩かれない
 	req1 := newTestRequest(t)
-	auth.SetAuth(req1)
+	if err := auth.SetAuth(req1); err != nil {
+		t.Fatalf("unexpected error on req1: %v", err)
+	}
 	req2 := newTestRequest(t)
-	auth.SetAuth(req2)
+	if err := auth.SetAuth(req2); err != nil {
+		t.Fatalf("unexpected error on req2: %v", err)
+	}
 
 	if got := callCount.Load(); got != 1 {
 		t.Errorf("API call count = %d, want 1 (token should be cached)", got)
@@ -237,7 +330,9 @@ func TestGitHubAppAuthenticator_TokenRefresh(t *testing.T) {
 
 	// 初回取得
 	req1 := newTestRequest(t)
-	auth.SetAuth(req1)
+	if err := auth.SetAuth(req1); err != nil {
+		t.Fatalf("unexpected error on req1: %v", err)
+	}
 
 	// トークンを期限切れにする
 	auth.mu.Lock()
@@ -246,7 +341,9 @@ func TestGitHubAppAuthenticator_TokenRefresh(t *testing.T) {
 
 	// 2回目はリフレッシュされるべき
 	req2 := newTestRequest(t)
-	auth.SetAuth(req2)
+	if err := auth.SetAuth(req2); err != nil {
+		t.Fatalf("unexpected error on req2: %v", err)
+	}
 
 	if got := callCount.Load(); got != 2 {
 		t.Errorf("API call count = %d, want 2 (token should be refreshed)", got)

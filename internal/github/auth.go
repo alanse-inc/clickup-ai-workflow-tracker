@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ import (
 // Authenticator は GitHub API リクエストに認証情報を付与するインターフェース。
 // PAT や GitHub App (Installation Token) など、異なる認証方式を差し替え可能にする。
 type Authenticator interface {
-	SetAuth(req *http.Request)
+	SetAuth(req *http.Request) error
 }
 
 // PATAuthenticator は Personal Access Token による認証を行う
@@ -35,8 +34,9 @@ func NewPATAuthenticator(token string) *PATAuthenticator {
 }
 
 // SetAuth はリクエストに Bearer トークンを設定する
-func (a *PATAuthenticator) SetAuth(req *http.Request) {
+func (a *PATAuthenticator) SetAuth(req *http.Request) error {
 	req.Header.Set("Authorization", "Bearer "+a.token)
+	return nil
 }
 
 const (
@@ -111,7 +111,7 @@ func parseRSAPrivateKey(block *pem.Block) (*rsa.PrivateKey, error) {
 // トークンが未取得または期限切れの場合は自動で取得・リフレッシュする。
 // ロックはリフレッシュ中も保持する。トークン更新は1時間に1回程度であり、
 // オーケストレータは単一ポーリングループのため並行ブロックの影響は軽微。
-func (a *GitHubAppAuthenticator) SetAuth(req *http.Request) {
+func (a *GitHubAppAuthenticator) SetAuth(req *http.Request) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -119,16 +119,17 @@ func (a *GitHubAppAuthenticator) SetAuth(req *http.Request) {
 		cachedToken := a.token
 		cachedExpiry := a.expiresAt
 		if err := a.refreshToken(req.Context()); err != nil {
-			slog.Error("failed to refresh installation token", "error", err)
 			// リフレッシュ失敗でも既存トークンがまだ有効ならフォールバック
 			if cachedToken != "" && time.Now().Before(cachedExpiry) {
 				req.Header.Set("Authorization", "Bearer "+cachedToken)
+				return nil
 			}
-			return
+			return fmt.Errorf("failed to set auth: %w", err)
 		}
 	}
 
 	req.Header.Set("Authorization", "Bearer "+a.token)
+	return nil
 }
 
 func (a *GitHubAppAuthenticator) refreshToken(parentCtx context.Context) error {

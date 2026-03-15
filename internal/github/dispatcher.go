@@ -9,6 +9,12 @@ import (
 	"net/http"
 )
 
+const (
+	githubAPIBaseURL   = "https://api.github.com"
+	defaultWorkflowRef = "main"
+)
+
+// Dispatcher は GitHub Actions の workflow_dispatch イベントをトリガーする
 type Dispatcher struct {
 	pat          string
 	owner        string
@@ -17,6 +23,7 @@ type Dispatcher struct {
 	httpClient   *http.Client
 }
 
+// NewDispatcher は新しい Dispatcher を生成する
 func NewDispatcher(pat, owner, repo, workflowFile string) *Dispatcher {
 	return &Dispatcher{
 		pat:          pat,
@@ -32,12 +39,14 @@ type dispatchRequest struct {
 	Inputs map[string]string `json:"inputs"`
 }
 
+// TriggerWorkflow は指定したタスクのフェーズに対応する GitHub Actions ワークフローをトリガーする。
+// statusOnSuccess と statusOnError はワークフロー完了後に設定されるステータスとして inputs に渡される。
 func (d *Dispatcher) TriggerWorkflow(ctx context.Context, taskID string, phase string, statusOnSuccess string, statusOnError string) error {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/workflows/%s/dispatches",
-		d.owner, d.repo, d.workflowFile)
+	url := fmt.Sprintf("%s/repos/%s/%s/actions/workflows/%s/dispatches",
+		githubAPIBaseURL, d.owner, d.repo, d.workflowFile)
 
 	body := dispatchRequest{
-		Ref: "main",
+		Ref: defaultWorkflowRef,
 		Inputs: map[string]string{
 			"task_id":           taskID,
 			"phase":             phase,

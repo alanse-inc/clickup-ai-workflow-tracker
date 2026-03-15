@@ -25,7 +25,8 @@ func WithTaskContext(ctx context.Context, taskID string, phase string) context.C
 	return context.WithValue(ctx, contextKey{}, attrs)
 }
 
-// TaskAttrsFromContext は context からタスク属性を取得する
+// TaskAttrsFromContext は context に付加されたタスク属性（task_id, phase）を取得する。
+// WithTaskContext で設定されていない場合は nil を返す。
 func TaskAttrsFromContext(ctx context.Context) []slog.Attr {
 	attrs, ok := ctx.Value(contextKey{}).([]slog.Attr)
 	if !ok {

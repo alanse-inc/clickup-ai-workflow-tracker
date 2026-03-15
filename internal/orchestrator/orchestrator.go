@@ -161,12 +161,19 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task) {
 	slog.Info("task dispatched", "task_id", task.ID, "phase", phaseStr)
 }
 
+const (
+	// retryBaseDelayMS はリトライバックオフの基底遅延（ミリ秒）
+	retryBaseDelayMS = 10000
+	// retryMaxDelayMS はリトライバックオフの最大遅延（ミリ秒）
+	retryMaxDelayMS = 300000
+)
+
 // scheduleRetry はリトライタイマーを設定する
 func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, err error) {
-	// delay = min(10000 * 2^(attempt-1), 300000) ms
-	delay := 10000 * (1 << (attempt - 1))
-	if delay > 300000 {
-		delay = 300000
+	// delay = min(retryBaseDelayMS * 2^(attempt-1), retryMaxDelayMS) ms
+	delay := retryBaseDelayMS * (1 << (attempt - 1))
+	if delay > retryMaxDelayMS {
+		delay = retryMaxDelayMS
 	}
 	delayDuration := time.Duration(delay) * time.Millisecond
 

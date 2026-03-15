@@ -11,7 +11,8 @@ import (
 
 const baseURL = "https://api.clickup.com/api/v2"
 
-// Client はClickUp APIクライアント
+// Client は ClickUp REST API v2 のクライアント。
+// リスト内タスクの取得・個別タスクの取得・ステータス更新を提供する。
 type Client struct {
 	apiToken   string
 	listID     string

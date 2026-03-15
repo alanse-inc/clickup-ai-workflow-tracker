@@ -1,4 +1,4 @@
-# Project: clickup-ai-workflow-tracker
+# Project: clickup-ai-orchestrator
 
 ClickUp上のタスクをステータス駆動で検知し、GitHub Actions経由でClaude Codeを起動して仕様作成・コード実装を自律的に実行するGoオーケストレーションサービス。
 

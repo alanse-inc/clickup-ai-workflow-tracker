@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/config"
-	gh "github.com/rikeda71/clickup-ai-workflow-tracker/internal/github"
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/logging"
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/orchestrator"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/clickup"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/config"
+	gh "github.com/rikeda71/clickup-ai-orchestrator/internal/github"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/logging"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/orchestrator"
 )
 
 func main() {

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/logging"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/clickup"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/logging"
 )
 
 // TaskClient は ClickUp のタスク操作を行うインターフェース

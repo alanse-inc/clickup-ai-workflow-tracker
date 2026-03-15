@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/clickup"
 )
 
 var (

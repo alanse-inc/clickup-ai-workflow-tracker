@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rikeda71/clickup-ai-workflow-tracker/internal/clickup"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/clickup"
 )
 
 type Config struct {

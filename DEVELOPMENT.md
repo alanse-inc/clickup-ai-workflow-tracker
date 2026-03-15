@@ -1,6 +1,6 @@
 # Development Guide
 
-本プロジェクト（clickup-ai-workflow-tracker）自体の開発フローを定義する。
+本プロジェクト（clickup-ai-orchestrator）自体の開発フローを定義する。
 Claude Code を活用した AI 駆動開発を前提とし、人間は問題定義・レビュー・検証に集中する。
 
 ## 1. Development Workflow

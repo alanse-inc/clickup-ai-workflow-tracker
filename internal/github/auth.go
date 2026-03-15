@@ -109,6 +109,8 @@ func parseRSAPrivateKey(block *pem.Block) (*rsa.PrivateKey, error) {
 
 // SetAuth はキャッシュされた installation token を使い Bearer ヘッダーを設定する。
 // トークンが未取得または期限切れの場合は自動で取得・リフレッシュする。
+// リフレッシュ失敗時、既存トークンがまだ有効であればフォールバックして nil を返す。
+// キャッシュトークンも無効または未取得の場合はエラーを返す。
 // ロックはリフレッシュ中も保持する。トークン更新は1時間に1回程度であり、
 // オーケストレータは単一ポーリングループのため並行ブロックの影響は軽微。
 func (a *GitHubAppAuthenticator) SetAuth(req *http.Request) error {

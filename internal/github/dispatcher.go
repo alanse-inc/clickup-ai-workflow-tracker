@@ -68,7 +68,7 @@ func (d *Dispatcher) TriggerWorkflow(ctx context.Context, taskID string, phase s
 	}
 
 	if err := d.auth.SetAuth(req); err != nil {
-		return fmt.Errorf("failed to set auth: %w", err)
+		return fmt.Errorf("failed to authenticate request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("Content-Type", "application/json")

@@ -87,6 +87,19 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update ClickUp status on success
+        if: success()
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          TASK_ID: ${{ inputs.task_id }}
+          STATUS: ${{ inputs.status_on_success }}
+        run: |
+          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+            -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+            -H "Authorization: ${CLICKUP_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg status "$STATUS" '{status: $status}')"
+
       - name: Update ClickUp description (SPEC)
         if: success() && inputs.phase == 'SPEC'
         continue-on-error: true
@@ -110,7 +123,7 @@ jobs:
           FIELD_ID: ${{ secrets.CLICKUP_PR_URL_FIELD_ID }}
           CODE_RESULT: ${{ steps.claude_code.outputs.result }}
         run: |
-          PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1)
+          PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | head -1 || true)
           if [ -n "$PR_URL" ]; then
             curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
               -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
@@ -120,19 +133,6 @@ jobs:
           else
             echo "::warning::PR URL not found in Claude Code output"
           fi
-
-      - name: Update ClickUp status on success
-        if: success()
-        env:
-          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
-          TASK_ID: ${{ inputs.task_id }}
-          STATUS: ${{ inputs.status_on_success }}
-        run: |
-          curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
-            -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
-            -H "Authorization: ${CLICKUP_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg status "$STATUS" '{status: $status}')"
 
       - name: Record error to ClickUp
         if: failure()

@@ -26,6 +26,7 @@ func clearEnvs(t *testing.T) {
 		"CLICKUP_STATUS_SPEC_REVIEW", "CLICKUP_STATUS_READY_FOR_CODE",
 		"CLICKUP_STATUS_IMPLEMENTING", "CLICKUP_STATUS_PR_REVIEW",
 		"CLICKUP_STATUS_CLOSED",
+		"GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY",
 	} {
 		t.Setenv(key, "")
 	}
@@ -40,7 +41,7 @@ func TestLoad(t *testing.T) {
 		check       func(t *testing.T, cfg *Config)
 	}{
 		{
-			name: "all required fields set",
+			name: "all required fields set with PAT",
 			setup: func(t *testing.T) {
 				setRequiredEnvs(t)
 			},
@@ -59,6 +60,9 @@ func TestLoad(t *testing.T) {
 				}
 				if cfg.GitHubRepo != "test-repo" {
 					t.Errorf("GitHubRepo = %q, want %q", cfg.GitHubRepo, "test-repo")
+				}
+				if cfg.AuthMode != "pat" {
+					t.Errorf("AuthMode = %q, want %q", cfg.AuthMode, "pat")
 				}
 			},
 		},
@@ -103,6 +107,14 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "CLICKUP_API_TOKEN",
+		},
+		{
+			name: "missing multiple required fields without PAT",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+			},
+			wantErr:     true,
+			errContains: "missing required environment variables",
 		},
 		{
 			name: "missing multiple required fields",
@@ -195,6 +207,84 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "duplicate status",
+		},
+		{
+			name: "GitHub App auth mode",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-private-key")
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.AuthMode != "app" {
+					t.Errorf("AuthMode = %q, want %q", cfg.AuthMode, "app")
+				}
+				if cfg.GitHubAppID != 12345 {
+					t.Errorf("GitHubAppID = %d, want %d", cfg.GitHubAppID, 12345)
+				}
+				if cfg.GitHubAppInstallationID != 67890 {
+					t.Errorf("GitHubAppInstallationID = %d, want %d", cfg.GitHubAppInstallationID, 67890)
+				}
+				if cfg.GitHubAppPrivateKey != "test-private-key" {
+					t.Errorf("GitHubAppPrivateKey = %q, want %q", cfg.GitHubAppPrivateKey, "test-private-key")
+				}
+			},
+		},
+		{
+			name: "PAT and App mutually exclusive",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("GITHUB_APP_ID", "12345")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-key")
+			},
+			wantErr:     true,
+			errContains: "mutually exclusive",
+		},
+		{
+			name: "neither PAT nor App set",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+			},
+			wantErr:     true,
+			errContains: "either GITHUB_PAT or all GITHUB_APP_*",
+		},
+		{
+			name: "partial App config",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "12345")
+			},
+			wantErr:     true,
+			errContains: "missing GitHub App environment variables",
+		},
+		{
+			name: "invalid GITHUB_APP_ID",
+			setup: func(t *testing.T) {
+				clearEnvs(t)
+				t.Setenv("CLICKUP_API_TOKEN", "test-token")
+				t.Setenv("CLICKUP_LIST_ID", "list-123")
+				t.Setenv("GITHUB_OWNER", "test-owner")
+				t.Setenv("GITHUB_REPO", "test-repo")
+				t.Setenv("GITHUB_APP_ID", "not-a-number")
+				t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+				t.Setenv("GITHUB_APP_PRIVATE_KEY", "test-key")
+			},
+			wantErr:     true,
+			errContains: "invalid GITHUB_APP_ID",
 		},
 	}
 

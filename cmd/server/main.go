@@ -33,7 +33,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	githubAuth := gh.NewPATAuthenticator(cfg.GitHubPAT)
+	var githubAuth gh.Authenticator
+	switch cfg.AuthMode {
+	case "app":
+		var err error
+		githubAuth, err = gh.NewGitHubAppAuthenticator(cfg.GitHubAppID, cfg.GitHubAppInstallationID, []byte(cfg.GitHubAppPrivateKey))
+		if err != nil {
+			slog.Error("github_app_auth_failed", "error", err)
+			os.Exit(1)
+		}
+	default:
+		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
+	}
 	githubDispatcher := gh.NewDispatcher(githubAuth, cfg.GitHubOwner, cfg.GitHubRepo, cfg.GitHubWorkflowFile)
 	pollInterval := time.Duration(cfg.PollIntervalMS) * time.Millisecond
 

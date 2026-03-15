@@ -19,6 +19,12 @@ type Config struct {
 	GitHubWorkflowFile string // default: "agent.yml"
 	PollIntervalMS     int    // default: 10000
 	StatusMapping      clickup.StatusMapping
+
+	// GitHub App 認証用
+	AuthMode                string // "pat" or "app"
+	GitHubAppID             int64
+	GitHubAppInstallationID int64
+	GitHubAppPrivateKey     string
 }
 
 func Load() (*Config, error) {
@@ -30,7 +36,6 @@ func Load() (*Config, error) {
 	required := map[string]*string{
 		"CLICKUP_API_TOKEN": &cfg.ClickUpAPIToken,
 		"CLICKUP_LIST_ID":   &cfg.ClickUpListID,
-		"GITHUB_PAT":        &cfg.GitHubPAT,
 		"GITHUB_OWNER":      &cfg.GitHubOwner,
 		"GITHUB_REPO":       &cfg.GitHubRepo,
 	}
@@ -48,6 +53,11 @@ func Load() (*Config, error) {
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		return nil, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	// GitHub 認証: PAT と App は排他
+	if err := loadGitHubAuth(cfg); err != nil {
+		return nil, err
 	}
 
 	if v := os.Getenv("GITHUB_WORKFLOW_FILE"); v != "" {
@@ -87,6 +97,67 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadGitHubAuth(cfg *Config) error {
+	pat := os.Getenv("GITHUB_PAT")
+	appID := os.Getenv("GITHUB_APP_ID")
+	installID := os.Getenv("GITHUB_APP_INSTALLATION_ID")
+	privateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY")
+
+	hasPAT := pat != ""
+	appFields := []string{appID, installID, privateKey}
+	appFieldCount := 0
+	for _, f := range appFields {
+		if f != "" {
+			appFieldCount++
+		}
+	}
+	hasApp := appFieldCount > 0
+
+	if hasPAT && hasApp {
+		return fmt.Errorf("GITHUB_PAT and GITHUB_APP_* variables are mutually exclusive")
+	}
+
+	if !hasPAT && !hasApp {
+		return fmt.Errorf("either GITHUB_PAT or all GITHUB_APP_* variables (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY) must be set")
+	}
+
+	if hasPAT {
+		cfg.AuthMode = "pat"
+		cfg.GitHubPAT = pat
+		return nil
+	}
+
+	// App モード: 全フィールド必須
+	if appFieldCount < 3 {
+		var missing []string
+		if appID == "" {
+			missing = append(missing, "GITHUB_APP_ID")
+		}
+		if installID == "" {
+			missing = append(missing, "GITHUB_APP_INSTALLATION_ID")
+		}
+		if privateKey == "" {
+			missing = append(missing, "GITHUB_APP_PRIVATE_KEY")
+		}
+		return fmt.Errorf("missing GitHub App environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	parsedAppID, err := strconv.ParseInt(appID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid GITHUB_APP_ID value %q: %w", appID, err)
+	}
+	parsedInstallID, err := strconv.ParseInt(installID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID value %q: %w", installID, err)
+	}
+
+	cfg.AuthMode = "app"
+	cfg.GitHubAppID = parsedAppID
+	cfg.GitHubAppInstallationID = parsedInstallID
+	cfg.GitHubAppPrivateKey = privateKey
+	return nil
 }
 
 func validateStatusMapping(sm clickup.StatusMapping) error {

@@ -81,7 +81,8 @@ jobs:
             2. 仕様に基づいてコードを変更
             3. テストを実行して通ることを確認
             4. コミット＆Push
-            5. gh pr create で PR を作成
+            5. gh pr create で PR を作成。description の末尾に必ず以下の行を含めること:
+               Closes CU-${{ inputs.task_id }}
 
             コーディング規約は CLAUDE.md を参照してください。
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -113,26 +114,6 @@ jobs:
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg desc "$SPEC_RESULT" '{description: $desc}')"
-
-      - name: Set PR URL custom field (CODE)
-        if: success() && inputs.phase == 'CODE'
-        continue-on-error: true
-        env:
-          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
-          TASK_ID: ${{ inputs.task_id }}
-          FIELD_ID: ${{ secrets.CLICKUP_PR_URL_FIELD_ID }}
-          CODE_RESULT: ${{ steps.claude_code.outputs.result }}
-        run: |
-          PR_URL=$(echo "$CODE_RESULT" | grep -oE 'https://github\.com/[^[:space:])\]>,]+/pull/[0-9]+' | head -1 || true)
-          if [ -n "$PR_URL" ]; then
-            curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
-              -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/field/${FIELD_ID}" \
-              -H "Authorization: ${CLICKUP_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "$(jq -n --arg url "$PR_URL" '{value: $url}')"
-          else
-            echo "::warning::PR URL not found in Claude Code output"
-          fi
 
       - name: Record error to ClickUp
         if: failure()

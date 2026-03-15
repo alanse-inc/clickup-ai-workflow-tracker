@@ -33,7 +33,7 @@ jobs:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
         run: |
-          RESPONSE=$(curl -s "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          RESPONSE=$(curl -fsS "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}")
           echo "task_name=$(echo "$RESPONSE" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           echo "task_description<<EOF" >> "$GITHUB_OUTPUT"
@@ -93,7 +93,7 @@ jobs:
           TASK_ID: ${{ inputs.task_id }}
           STATUS: ${{ inputs.status_on_success }}
         run: |
-          curl -s -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          curl -fsS -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg status "$STATUS" '{status: $status}')"
@@ -106,7 +106,7 @@ jobs:
           STATUS: ${{ inputs.status_on_error }}
         run: |
           # TODO: ClickUp の Agent Error カスタムフィールドにエラーメッセージを記録する（カスタムフィールドIDの設定が必要）
-          curl -s -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
+          curl -fsS -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg status "$STATUS" '{status: $status}')"

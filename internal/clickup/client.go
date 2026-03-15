@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const baseURL = "https://api.clickup.com/api/v2"
+
+const defaultHTTPTimeout = 30 * time.Second
 
 // Client は ClickUp REST API v2 のクライアント。
 // リスト内タスクの取得・個別タスクの取得・ステータス更新を提供する。
@@ -24,7 +27,7 @@ func NewClient(apiToken, listID string) *Client {
 	return &Client{
 		apiToken:   apiToken,
 		listID:     listID,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 	}
 }
 

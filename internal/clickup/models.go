@@ -22,6 +22,7 @@ const (
 )
 
 // ステータス定数
+// TODO: ステータス名を環境変数で設定可能にし、起動時に ClickUp ボード上に存在するか検証する
 const (
 	StatusIdeaDraft      = "idea draft"
 	StatusReadyForSpec   = "ready for spec"

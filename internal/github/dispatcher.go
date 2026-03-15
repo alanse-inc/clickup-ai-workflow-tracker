@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const (
 	githubAPIBaseURL   = "https://api.github.com"
 	defaultWorkflowRef = "main"
+	defaultHTTPTimeout = 30 * time.Second
 )
 
 // Dispatcher は GitHub Actions の workflow_dispatch イベントをトリガーする
@@ -30,7 +32,7 @@ func NewDispatcher(pat, owner, repo, workflowFile string) *Dispatcher {
 		owner:        owner,
 		repo:         repo,
 		workflowFile: workflowFile,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: defaultHTTPTimeout},
 	}
 }
 

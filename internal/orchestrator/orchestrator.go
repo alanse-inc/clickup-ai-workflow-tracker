@@ -29,6 +29,8 @@ type Orchestrator struct {
 	pollInterval time.Duration
 	retryTimers  map[string]*retryEntry
 	retryMu      sync.Mutex
+	ctx          context.Context
+	done         bool // shutdown が完了したかどうか
 }
 
 type retryEntry struct {
@@ -53,6 +55,8 @@ func New(fetcher TaskFetcher, dispatcher WorkflowDispatcher, pollInterval time.D
 func (o *Orchestrator) Run(ctx context.Context) {
 	slog.Info("orchestrator started", "poll_interval", o.pollInterval.String())
 
+	o.ctx = ctx
+
 	// SPEC 8.1: 起動時に即時ティックを実行
 	o.tick(ctx)
 
@@ -76,6 +80,7 @@ func (o *Orchestrator) shutdown() {
 	o.retryMu.Lock()
 	defer o.retryMu.Unlock()
 
+	o.done = true
 	for taskID, entry := range o.retryTimers {
 		entry.timer.Stop()
 		delete(o.retryTimers, taskID)
@@ -152,6 +157,10 @@ func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task) {
 	errorStatus := clickup.ErrorStatusFor(phase)
 	if err := o.dispatcher.TriggerWorkflow(ctx, task.ID, phaseStr, successStatus, errorStatus); err != nil {
 		slog.Error("failed to trigger workflow", "task_id", task.ID, "phase", phaseStr, "error", err)
+		// ベストエフォートでステータスを元に戻す
+		if revertErr := o.fetcher.UpdateTaskStatus(ctx, task.ID, errorStatus); revertErr != nil {
+			slog.Error("failed to revert task status", "task_id", task.ID, "status", errorStatus, "error", revertErr)
+		}
 		o.state.Release(task.ID)
 		o.scheduleRetry(task.ID, phaseStr, 1, err)
 		return
@@ -166,21 +175,31 @@ const (
 	retryBaseDelayMS = 10000
 	// retryMaxDelayMS はリトライバックオフの最大遅延（ミリ秒）
 	retryMaxDelayMS = 300000
+	// retryMaxExponent はビットシフトオーバーフロー防止のための最大指数
+	retryMaxExponent = 5 // 2^5 = 32 → 10000 * 32 = 320000 → capped to 300000
 )
 
 // scheduleRetry はリトライタイマーを設定する
 func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, err error) {
+	o.retryMu.Lock()
+	defer o.retryMu.Unlock()
+
+	if o.done {
+		return
+	}
+
 	// delay = min(retryBaseDelayMS * 2^(attempt-1), retryMaxDelayMS) ms
-	delay := retryBaseDelayMS * (1 << (attempt - 1))
+	exp := attempt - 1
+	if exp > retryMaxExponent {
+		exp = retryMaxExponent
+	}
+	delay := retryBaseDelayMS * (1 << exp)
 	if delay > retryMaxDelayMS {
 		delay = retryMaxDelayMS
 	}
 	delayDuration := time.Duration(delay) * time.Millisecond
 
 	slog.Warn("scheduling retry", "task_id", taskID, "phase", phase, "attempt", attempt, "delay_ms", delay, "error", err)
-
-	o.retryMu.Lock()
-	defer o.retryMu.Unlock()
 
 	// 既存のタイマーがあればキャンセル
 	if existing, ok := o.retryTimers[taskID]; ok {
@@ -202,10 +221,14 @@ func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, e
 // handleRetry はリトライを処理する
 func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 	o.retryMu.Lock()
+	if o.done {
+		o.retryMu.Unlock()
+		return
+	}
 	delete(o.retryTimers, taskID)
 	o.retryMu.Unlock()
 
-	ctx := context.Background()
+	ctx := o.ctx
 	task, err := o.fetcher.GetTask(ctx, taskID)
 	if err != nil {
 		slog.Error("failed to get task for retry", "task_id", taskID, "phase", phase, "attempt", attempt, "error", err)

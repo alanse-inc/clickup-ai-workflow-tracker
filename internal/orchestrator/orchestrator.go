@@ -187,6 +187,19 @@ const (
 	retryMaxExponent = 5 // 2^5 = 32 → 10000 * 32 = 320000 → capped to 300000
 )
 
+// calcRetryDelay はリトライのバックオフ遅延を計算する
+func calcRetryDelay(attempt int) time.Duration {
+	exp := attempt - 1
+	if exp > retryMaxExponent {
+		exp = retryMaxExponent
+	}
+	delay := retryBaseDelayMS * (1 << exp)
+	if delay > retryMaxDelayMS {
+		delay = retryMaxDelayMS
+	}
+	return time.Duration(delay) * time.Millisecond
+}
+
 // scheduleRetry はリトライタイマーを設定する
 func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, err error) {
 	o.retryMu.Lock()
@@ -196,18 +209,9 @@ func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, e
 		return
 	}
 
-	// delay = min(retryBaseDelayMS * 2^(attempt-1), retryMaxDelayMS) ms
-	exp := attempt - 1
-	if exp > retryMaxExponent {
-		exp = retryMaxExponent
-	}
-	delay := retryBaseDelayMS * (1 << exp)
-	if delay > retryMaxDelayMS {
-		delay = retryMaxDelayMS
-	}
-	delayDuration := time.Duration(delay) * time.Millisecond
+	delayDuration := calcRetryDelay(attempt)
 
-	slog.Warn("scheduling retry", "task_id", taskID, "phase", phase, "attempt", attempt, "delay_ms", delay, "error", err)
+	slog.Warn("scheduling retry", "task_id", taskID, "phase", phase, "attempt", attempt, "delay", delayDuration, "error", err)
 
 	// 既存のタイマーがあればキャンセル
 	if existing, ok := o.retryTimers[taskID]; ok {

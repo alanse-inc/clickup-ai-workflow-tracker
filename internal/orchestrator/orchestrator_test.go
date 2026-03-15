@@ -417,3 +417,110 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 		t.Fatal("Run did not stop after context cancellation")
 	}
 }
+
+func TestCalcRetryDelay(t *testing.T) {
+	tests := []struct {
+		attempt  int
+		expected time.Duration
+	}{
+		{1, 10 * time.Second},   // 10000 * 2^0 = 10000ms
+		{2, 20 * time.Second},   // 10000 * 2^1 = 20000ms
+		{3, 40 * time.Second},   // 10000 * 2^2 = 40000ms
+		{4, 80 * time.Second},   // 10000 * 2^3 = 80000ms
+		{5, 160 * time.Second},  // 10000 * 2^4 = 160000ms
+		{6, 300 * time.Second},  // 10000 * 2^5 = 320000ms → capped to 300000ms
+		{7, 300 * time.Second},  // exponent capped at 5
+		{10, 300 * time.Second}, // exponent capped at 5
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("attempt=%d", tt.attempt), func(t *testing.T) {
+			got := calcRetryDelay(tt.attempt)
+			if got != tt.expected {
+				t.Errorf("calcRetryDelay(%d) = %v, want %v", tt.attempt, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHandleRetry_RedispatchesOnTriggerStatus(t *testing.T) {
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: clickup.StatusReadyForSpec},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, time.Second)
+	defer o.shutdown()
+
+	o.ctx = context.Background()
+
+	// scheduleRetry でタイマーエントリを作成（handleRetry 内で delete される前提）
+	o.retryMu.Lock()
+	o.retryTimers["task-1"] = &retryEntry{taskID: "task-1", phase: "SPEC", attempt: 1}
+	o.retryMu.Unlock()
+
+	o.handleRetry("task-1", "SPEC", 1)
+
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 1 {
+		t.Fatalf("expected 1 trigger call for redispatch, got %d", len(dispatcher.triggerCalls))
+	}
+	if dispatcher.triggerCalls[0].TaskID != "task-1" {
+		t.Errorf("expected task-1, got %s", dispatcher.triggerCalls[0].TaskID)
+	}
+}
+
+func TestHandleRetry_ReleasesOnNonTriggerStatus(t *testing.T) {
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: clickup.StatusSpecReview},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, time.Second)
+	defer o.shutdown()
+
+	o.ctx = context.Background()
+	o.state.Claim("task-1")
+
+	o.retryMu.Lock()
+	o.retryTimers["task-1"] = &retryEntry{taskID: "task-1", phase: "SPEC", attempt: 1}
+	o.retryMu.Unlock()
+
+	o.handleRetry("task-1", "SPEC", 1)
+
+	if o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be released when not in trigger status")
+	}
+
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 0 {
+		t.Fatalf("expected 0 trigger calls, got %d", len(dispatcher.triggerCalls))
+	}
+}
+
+func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, time.Second)
+	defer o.shutdown()
+
+	o.scheduleRetry("task-1", "SPEC", 1, fmt.Errorf("error1"))
+	o.scheduleRetry("task-1", "SPEC", 2, fmt.Errorf("error2"))
+
+	o.retryMu.Lock()
+	defer o.retryMu.Unlock()
+
+	entry, ok := o.retryTimers["task-1"]
+	if !ok {
+		t.Fatal("expected retry timer to exist")
+	}
+	if entry.attempt != 2 {
+		t.Errorf("expected attempt 2 (latest), got %d", entry.attempt)
+	}
+}

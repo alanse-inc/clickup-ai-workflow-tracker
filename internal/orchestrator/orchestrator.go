@@ -52,14 +52,10 @@ type retryEntry struct {
 }
 
 // New は新しい Orchestrator を返す。
-// state が nil の場合は新しい AgentState を作成する。
 // 複数 Orchestrator 間で AgentState を共有することで、グローバルな並行タスク数制限を実現できる。
 func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger, state *AgentState) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
-	}
-	if state == nil {
-		state = NewAgentState()
 	}
 	return &Orchestrator{
 		taskClient:         taskClient,

@@ -120,8 +120,8 @@ projects:
 ```bash
 docker run --rm \
   --env-file .env \
-  -e PROJECTS_FILE=/app/projects.yaml \
-  -v $(pwd)/projects.yaml:/app/projects.yaml:ro \
+  -e PROJECTS_FILE=/projects.yaml \
+  -v "$(pwd)/projects.yaml":/projects.yaml:ro \
   ghcr.io/alanse-inc/clickup-ai-orchestrator:latest
 ```
 
@@ -129,8 +129,8 @@ docker run --rm \
 
 ```dockerfile
 FROM ghcr.io/alanse-inc/clickup-ai-orchestrator:latest
-COPY projects.yaml /app/projects.yaml
-ENV PROJECTS_FILE=/app/projects.yaml
+COPY projects.yaml /projects.yaml
+ENV PROJECTS_FILE=/projects.yaml
 ```
 
 ```bash

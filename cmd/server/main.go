@@ -66,7 +66,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		slog.Info("health_server_started", "port", port) //nolint:gosec // port is from trusted env var
+		slog.Info("health_server_started", "port", port) //nolint:gosec // G706: port is from trusted env var
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("health_server_error", "error", err)
 		}
@@ -74,6 +74,16 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// シグナル受信時にヘルスチェックサーバーを即座に停止し、Cloud Run がトラフィックを新規送信しないようにする
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("health_server_shutdown_error", "error", err)
+		}
+	}()
 
 	orchCfg := orchestrator.Config{
 		PollInterval:  time.Duration(cfg.PollIntervalMS) * time.Millisecond,
@@ -103,7 +113,6 @@ func main() {
 	}
 
 	wg.Wait()
-	_ = srv.Shutdown(context.Background())
 	slog.InfoContext(ctx, "service_stopped")
 }
 

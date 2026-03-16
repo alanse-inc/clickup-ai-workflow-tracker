@@ -87,7 +87,7 @@ projects:
 | `GITHUB_PAT` | Yes (*1) | GitHub Personal Access Token（classic: `repo`, `workflow` スコープ / fine-grained: Contents + Actions の Read and write） |
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
-| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem \| tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
+| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
 | `PROJECTS_FILE` | No | プロジェクト設定ファイルのパス（default: `projects.yaml`） |
 | `POLL_INTERVAL_MS` | No | ポーリング間隔ミリ秒（default: `10000`） |
 | `MAX_CONCURRENT_TASKS` | No | 並行タスク数上限（default: `0` = 無制限） |
@@ -110,6 +110,8 @@ projects:
 </details>
 
 ### 5. オーケストレーターの起動
+
+まず上記の環境変数テーブルを参照して `.env` を作成してください。
 
 #### ローカル実行
 

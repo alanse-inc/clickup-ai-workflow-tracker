@@ -298,6 +298,7 @@ func (o *Orchestrator) handleRetry(taskID string, phase string, attempt int) {
 		_ = o.dispatch(ctx, *task, attempt+1)
 	} else {
 		tl.Info("task no longer in trigger status, releasing", "status", task.Status)
-		o.release(taskID)
+		// リトライ待ちに入る前の dispatch 失敗パスで既に limiter は解放済みのため、state のみ解放する
+		o.state.Release(taskID)
 	}
 }

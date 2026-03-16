@@ -1,0 +1,5 @@
+projects:
+  - clickup_list_id: "YOUR_CLICKUP_LIST_ID"
+    github_owner: "your-org"
+    github_repo: "your-repo"
+    # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)

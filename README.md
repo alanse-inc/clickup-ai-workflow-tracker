@@ -61,26 +61,36 @@ curl -s "https://api.clickup.com/api/v2/list/{list_id}/field" \
   | jq '.fields[] | select(.name == "agent_error") | .id'
 ```
 
-### 3. 環境変数
+### 3. プロジェクト設定ファイル（projects.yaml）
 
-`.env.example` をコピーして `.env` を作成し、値を設定してください。
+`projects.yaml.example` をコピーして `projects.yaml` を作成し、ClickUp リストと GitHub リポジトリの対応を設定してください。
 
 ```bash
-cp .env.example .env
+cp projects.yaml.example projects.yaml
 ```
+
+```yaml
+projects:
+  - clickup_list_id: "XXXXXXXXX"
+    github_owner: "your-org"
+    github_repo: "your-repo"
+    # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)
+```
+
+複数プロジェクトを管理する場合は、`projects` 配列に複数エントリを追加してください。
+
+### 4. 環境変数
 
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
 | `CLICKUP_API_TOKEN` | Yes | ClickUp API トークン |
-| `CLICKUP_LIST_ID` | Yes | 対象 ClickUp リスト ID |
 | `GITHUB_PAT` | Yes (*1) | GitHub Personal Access Token（classic: `repo`, `workflow` スコープ / fine-grained: Contents + Actions の Read and write） |
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
-| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
-| `GITHUB_OWNER` | Yes | ターゲットリポジトリのオーナー |
-| `GITHUB_REPO` | Yes | ターゲットリポジトリ名 |
-| `GITHUB_WORKFLOW_FILE` | No | ワークフローファイル名（default: `agent.yaml`） |
+| `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key（base64 エンコードした PEM）macOS: `base64 -i key.pem \| tr -d '\n'` / Linux: `base64 -w 0 < key.pem` |
+| `PROJECTS_FILE` | No | プロジェクト設定ファイルのパス（default: `projects.yaml`） |
 | `POLL_INTERVAL_MS` | No | ポーリング間隔ミリ秒（default: `10000`） |
+| `MAX_CONCURRENT_TASKS` | No | 並行タスク数上限（default: `0` = 無制限） |
 
 *1: `GITHUB_PAT` と `GITHUB_APP_*` は排他。いずれか一方を設定してください。
 
@@ -99,16 +109,7 @@ cp .env.example .env
 
 </details>
 
-### 4. オーケストレーターの起動
-
-#### Docker
-
-```bash
-docker build -t clickup-tracker .
-docker run --env-file .env clickup-tracker
-```
-
-> **Note**: Docker の `--env-file` はマルチライン値を扱えないため、GitHub App 認証（`GITHUB_APP_PRIVATE_KEY`）を使用する場合は base64 エンコードした値を設定してください。
+### 5. オーケストレーターの起動
 
 #### ローカル実行
 
@@ -119,6 +120,15 @@ export $(grep -v '^#' .env | xargs)
 go build -o bin/server ./cmd/server
 ./bin/server
 ```
+
+#### Docker
+
+```bash
+docker build -t clickup-ai-orchestrator .
+docker run --env-file .env clickup-ai-orchestrator
+```
+
+> **Note**: Docker の `--env-file` はマルチライン値を扱えないため、GitHub App 認証（`GITHUB_APP_PRIVATE_KEY`）を使用する場合は base64 エンコードした値を設定してください。
 
 ## Usage
 

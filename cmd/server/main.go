@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -50,6 +51,27 @@ func main() {
 		}
 	}
 
+	// Cloud Run ヘルスチェック用 HTTP サーバー
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		slog.Info("health_server_started", "port", port) //nolint:gosec // port is from trusted env var
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("health_server_error", "error", err)
+		}
+	}()
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -81,6 +103,7 @@ func main() {
 	}
 
 	wg.Wait()
+	_ = srv.Shutdown(context.Background())
 	slog.InfoContext(ctx, "service_stopped")
 }
 

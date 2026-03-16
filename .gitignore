@@ -30,6 +30,9 @@ bin/
 # env file
 .env
 
+# Project config (contains list IDs / repo names)
+projects.yaml
+
 # Editor/IDE
 # .idea/
 # .vscode/

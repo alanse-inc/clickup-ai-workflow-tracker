@@ -64,17 +64,18 @@ func main() {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	srvErrCh := make(chan error, 1)
 	go func() {
 		slog.Info("health_server_started", "port", port) //nolint:gosec // G706: port is from trusted env var
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("health_server_error", "error", err)
+			srvErrCh <- err
 		}
 	}()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// シグナル受信時にヘルスチェックサーバーを即座に停止し、Cloud Run がトラフィックを新規送信しないようにする
+	// シグナル受信時にヘルスチェックサーバーを即座に停止する
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -109,6 +110,13 @@ func main() {
 			defer wg.Done()
 			o.Run(ctx)
 		}(orch)
+	}
+
+	select {
+	case err := <-srvErrCh:
+		slog.Error("health_server_failed", "error", err)
+		os.Exit(1)
+	case <-ctx.Done():
 	}
 
 	wg.Wait()

@@ -113,6 +113,31 @@ projects:
 
 まず上記の環境変数テーブルを参照して `.env` を作成してください。
 
+#### Docker を使った起動（推奨）
+
+公開イメージを `docker run` で直接使えます。`projects.yaml` はボリュームマウントで渡します。
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -e PROJECTS_FILE=/projects.yaml \
+  -v "$(pwd)/projects.yaml":/projects.yaml:ro \
+  ghcr.io/alanse-inc/clickup-ai-orchestrator:latest
+```
+
+`projects.yaml` をイメージに埋め込む場合は、以下の Dockerfile を使ってください。
+
+```dockerfile
+FROM ghcr.io/alanse-inc/clickup-ai-orchestrator:latest
+COPY projects.yaml /projects.yaml
+ENV PROJECTS_FILE=/projects.yaml
+```
+
+```bash
+docker build -t my-orchestrator .
+docker run --rm --env-file .env my-orchestrator
+```
+
 #### ローカル実行
 
 ```bash

@@ -1,0 +1,25 @@
+# Changelog
+
+## 1.0.0 (2026-03-17)
+
+
+### Features
+
+* add apply-issue skill for end-to-end issue workflow ([#12](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/12)) ([29eafa2](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/29eafa2ab227884c9b3bd8c529d8db988380aeb7))
+* add ClickUp description update, PR URL field, and error recording to agent.yml ([#16](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/16)) ([2240270](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/2240270732f218375a64a077f3d62043275518ae)), closes [#3](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/3)
+* add Docker image release workflow and document Docker setup ([#42](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/42)) ([439f6fc](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/439f6fc16570e7bcc177dccfd3ed48c1b2ea6bbf))
+* add Dockerfile and deployment configuration ([#24](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/24)) ([e5e0a87](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/e5e0a87b680a310d6b08953d0c3a135f8a9b72ad)), closes [#17](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/17)
+* add GitHub App (Installation Token) authentication support ([#15](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/15)) ([c5a50c4](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/c5a50c47160e787e249da9820c3e082d28e3791a)), closes [#10](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/10)
+* add health check endpoint, projects.yaml example, and update README ([#40](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/40)) ([b010bcc](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/b010bcca3d3c4cdab21bf9966776bcd5ccf34bcb))
+* add MAX_CONCURRENT_TASKS to limit parallel agent dispatches ([#30](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/30)) ([e3bbcce](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/e3bbcce68f43da2cdbd2311a93e3040a77a7ae6c))
+* add shortcut flow to skip SPEC phase for simple tasks ([#29](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/29)) ([a114963](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/a114963f2636276016fb039a6105aa8244e36d0a)), closes [#21](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/21)
+* GITHUB_APP_PRIVATE_KEY の base64 エンコード対応 ([#27](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/27)) ([8fdad84](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/8fdad846d6efc7c0886435e141ffc5250ce5b314))
+* implement orchestrator service with all core components ([#9](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/9)) ([51156d1](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/51156d15a4bb19adcf78fe9c4c87ba9ca3becec3))
+* make ClickUp status names configurable and activate logging package ([#14](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/14)) ([25fa2bc](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/25fa2bcad2f63714be0c5da80bd783643337caf4))
+* replace PR URL custom field with ClickUp GitHub integration ([#28](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/28)) ([2c60294](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/2c6029440f243741132ae6f3e647dff8a1ec8600)), closes [#18](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/18)
+* 複数リポジトリ対応 ([#39](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/39)) ([c8f89c2](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/c8f89c24b3f528da3d1a2b90a0273dfbad914c0a)), closes [#19](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/19)
+
+
+### Bug Fixes
+
+* add issues: write permission to release-please workflow ([#43](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/43)) ([31f25ce](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/31f25cea2b16e1998801beabac25075515e2f154))

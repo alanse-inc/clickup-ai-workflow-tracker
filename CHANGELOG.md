@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.1...v1.0.2) (2026-03-21)
+
+
+### Bug Fixes
+
+* add release-please manifest to fix changelog duplication ([#48](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/48)) ([440985f](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/440985fbe9a63568961b8635f1b5f1f031480d56))
+
 ## [1.0.1](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.0...v1.0.1) (2026-03-21)
 
 

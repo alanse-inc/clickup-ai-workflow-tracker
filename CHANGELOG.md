@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.0...v1.0.1) (2026-03-21)
+
+
+### Bug Fixes
+
+* move Docker push into release-please workflow ([#45](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/45)) ([bfa9f43](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/bfa9f430f0ada3a9453e177dcbd58304abf23ca5))
+
 ## 1.0.0 (2026-03-17)
 
 

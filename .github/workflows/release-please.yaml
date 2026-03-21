@@ -20,8 +20,6 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
-        with:
-          release-type: go
 
   docker:
     needs: release-please

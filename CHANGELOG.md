@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.2...v1.0.3) (2026-03-21)
+
+
+### Bug Fixes
+
+* add skip-labeling to release-please config ([#52](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/52)) ([a0049d5](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/a0049d5c7bba01664aee8591b36136d27b251e9f))
+
 ## [1.0.2](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.1...v1.0.2) (2026-03-21)
 
 

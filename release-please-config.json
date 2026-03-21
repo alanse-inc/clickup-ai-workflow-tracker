@@ -1,4 +1,5 @@
 {
+  "skip-labeling": true,
   "packages": {
     ".": {
       "release-type": "go"

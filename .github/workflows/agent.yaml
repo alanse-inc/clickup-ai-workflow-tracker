@@ -113,8 +113,9 @@ jobs:
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
-          SPEC_RESULT: ${{ steps.claude_spec.outputs.result }}
         run: |
+          OUTPUT_FILE="/home/runner/work/_temp/claude-execution-output.json"
+          SPEC_RESULT=$(jq -s '[.[] | select(.type == "result")] | last | .result // ""' "$OUTPUT_FILE")
           curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
             -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \
             -H "Authorization: ${CLICKUP_API_TOKEN}" \

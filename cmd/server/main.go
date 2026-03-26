@@ -70,7 +70,7 @@ func main() {
 		port = "8080"
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /healthz", health.NewHandler(clickupClients[0], dispatchers[0]))
+	mux.Handle("GET /health", health.NewHandler(clickupClients[0], dispatchers[0]))
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,

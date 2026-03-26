@@ -48,6 +48,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           allowed_bots: '*'
+          show_full_output: true
           prompt: |
             以下の ClickUp タスクの内容をもとに、実装仕様書を Markdown で作成してください。
             リポジトリの既存コードを読み込み、現在のアーキテクチャ・コーディングスタイルを踏まえて仕様を作成してください。

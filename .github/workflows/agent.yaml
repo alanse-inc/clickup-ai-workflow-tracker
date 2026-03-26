@@ -67,7 +67,7 @@ jobs:
             - テスト方針
             - 考慮事項・リスク
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Run Claude Code (CODE)
         id: claude_code
@@ -109,7 +109,7 @@ jobs:
 
             コーディング規約は CLAUDE.md を参照してください。
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Update ClickUp status on success
         if: success()
@@ -130,7 +130,7 @@ jobs:
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           PR_URL=$(gh pr list --head "feature/clickup-${TASK_ID}" --json url --jq '.[0].url')
           if [ -n "$PR_URL" ]; then

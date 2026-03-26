@@ -124,6 +124,23 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg status "$STATUS" '{status: $status}')"
 
+      - name: Post PR link to ClickUp (CODE)
+        if: success() && inputs.phase == 'CODE'
+        continue-on-error: true
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          TASK_ID: ${{ inputs.task_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr list --head "feature/clickup-${TASK_ID}" --json url --jq '.[0].url')
+          if [ -n "$PR_URL" ]; then
+            curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
+              -X POST "https://api.clickup.com/api/v2/task/${TASK_ID}/comment" \
+              -H "Authorization: ${CLICKUP_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg text "PR created: ${PR_URL}" '{comment_text: $text}')"
+          fi
+
       - name: Update ClickUp description (SPEC)
         if: success() && inputs.phase == 'SPEC'
         continue-on-error: true

@@ -54,21 +54,20 @@ Claude Code Action の実行に必要な OAuth トークンです。
 3. 対象リポジトリを選択してインストール
 4. 完了すると `CLAUDE_CODE_OAUTH_TOKEN` が自動的に GitHub Secrets に登録されます
 
-### 3.3 `GH_PAT`（推奨）
+### 3.3 `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY`（推奨）
 
-GitHub Personal Access Token です。設定すると、Claude Code が作成した PR で CI ワークフローが自動的にトリガーされます。
+GitHub App のインストールトークンを生成するために使用します。設定すると、Claude Code が作成した PR で CI ワークフローが自動的にトリガーされます。
 
-> **背景**: GitHub Actions のデフォルト `GITHUB_TOKEN` で push/PR 作成すると、セキュリティ上の理由で他のワークフロー（CI など）がトリガーされません。PAT を使うことでこの制限を回避できます。
+> **背景**: GitHub Actions のデフォルト `GITHUB_TOKEN` で push/PR 作成すると、セキュリティ上の理由で他のワークフロー（CI など）がトリガーされません。GitHub App トークンを使うことでこの制限を回避できます。
+
+オーケストレーターが使用している GitHub App と同じものを流用できます。
 
 **設定手順:**
 
-1. GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens で新しいトークンを作成
-2. 対象リポジトリへのアクセスを許可し、以下の権限を付与:
-   - **Contents**: Read and write
-   - **Pull requests**: Read and write
-3. 生成されたトークンを GitHub Secrets に `GH_PAT` として登録
+1. オーケストレーターの環境変数に設定済みの `GITHUB_APP_ID` と `GITHUB_APP_PRIVATE_KEY` の値を取得
+2. 対象リポジトリの GitHub Secrets に同じ値を登録
 
-> **Tip**: Organization で管理する場合は、Organization レベルの Secret として `GH_PAT` を設定すると、全リポジトリで共有できます。未設定の場合は `GITHUB_TOKEN` にフォールバックしますが、CI は自動トリガーされません。
+> **Tip**: Organization レベルの Secret として設定すると、全リポジトリで共有できます。未設定の場合は `GITHUB_TOKEN` にフォールバックしますが、CI は自動トリガーされません。
 
 ### 3.4 `CLICKUP_AGENT_ERROR_FIELD_ID`（オプション）
 

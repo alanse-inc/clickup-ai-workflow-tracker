@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.3...v1.0.4) (2026-03-26)
+
+
+### Bug Fixes
+
+* Dockerfile に ca-certificates を追加して TLS エラーを修正 ([#54](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/54)) ([698acf2](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/698acf2373e4a8daf7d8a96e62593b9ad4b1eb5d))
+
 ## [1.0.3](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.2...v1.0.3) (2026-03-21)
 
 

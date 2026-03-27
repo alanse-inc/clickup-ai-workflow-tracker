@@ -66,7 +66,8 @@ type apiTask struct {
 
 // apiTasksResponse はGetTasksのレスポンス
 type apiTasksResponse struct {
-	Tasks []apiTask `json:"tasks"`
+	Tasks    []apiTask `json:"tasks"`
+	LastPage bool      `json:"last_page"`
 }
 
 func (t *apiTask) toTask() Task {
@@ -98,30 +99,42 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body io.Read
 	return c.httpClient.Do(req)
 }
 
-// GetTasks はリスト内の全タスクを取得する
-func (c *Client) GetTasks(ctx context.Context) ([]Task, error) {
-	url := fmt.Sprintf("%s/list/%s/task", c.baseURL, c.listID)
+func (c *Client) fetchTasksPage(ctx context.Context, page int) (apiTasksResponse, error) {
+	url := fmt.Sprintf("%s/list/%s/task?page=%d", c.baseURL, c.listID, page)
 	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("fetching tasks: %w", err)
+		return apiTasksResponse{}, fmt.Errorf("fetching tasks (page %d): %w", page, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body := readErrorBody(resp.Body)
-		return nil, fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
+		return apiTasksResponse{}, fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 
 	var result apiTasksResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding tasks response: %w", err)
+		return apiTasksResponse{}, fmt.Errorf("decoding tasks response (page %d): %w", page, err)
 	}
+	return result, nil
+}
 
-	tasks := make([]Task, len(result.Tasks))
-	for i, t := range result.Tasks {
-		tasks[i] = t.toTask()
+// GetTasks はリスト内の全タスクを取得する
+func (c *Client) GetTasks(ctx context.Context) ([]Task, error) {
+	var allTasks []Task
+	for page := 0; ; page++ {
+		result, err := c.fetchTasksPage(ctx, page)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range result.Tasks {
+			allTasks = append(allTasks, t.toTask())
+		}
+		if result.LastPage || len(result.Tasks) == 0 {
+			break
+		}
 	}
-	return tasks, nil
+	return allTasks, nil
 }
 
 // GetTask は単一タスクを取得する

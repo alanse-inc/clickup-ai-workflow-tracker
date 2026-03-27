@@ -3,10 +3,12 @@ package clickup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -43,6 +45,7 @@ func TestGetTasks(t *testing.T) {
 					"date_updated": "1234567891",
 				},
 			},
+			"last_page": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -70,6 +73,127 @@ func TestGetTasks(t *testing.T) {
 	}
 	if task.CustomFields["github_pr_url"] != "https://github.com/pr/1" {
 		t.Errorf("expected custom field github_pr_url, got %v", task.CustomFields)
+	}
+}
+
+func TestGetTasksPagination(t *testing.T) {
+	makeTask := func(id string) map[string]any {
+		return map[string]any{
+			"id":            id,
+			"name":          "Task " + id,
+			"description":   "",
+			"status":        map[string]any{"status": "open"},
+			"custom_fields": []map[string]any{},
+			"date_created":  "0",
+			"date_updated":  "0",
+		}
+	}
+
+	make100Tasks := func() []map[string]any {
+		tasks := make([]map[string]any, 100)
+		for i := range tasks {
+			tasks[i] = makeTask(fmt.Sprintf("t%d", i))
+		}
+		return tasks
+	}
+
+	tests := []struct {
+		name          string
+		pages         []map[string]any // each element is a page response
+		wantTaskCount int
+		wantCallCount int
+		wantErr       bool
+	}{
+		{
+			name: "single_page",
+			pages: []map[string]any{
+				{"tasks": []map[string]any{makeTask("t1")}, "last_page": true},
+			},
+			wantTaskCount: 1,
+			wantCallCount: 1,
+		},
+		{
+			name: "two_pages",
+			pages: []map[string]any{
+				{"tasks": []map[string]any{makeTask("t1")}, "last_page": false},
+				{"tasks": []map[string]any{makeTask("t2")}, "last_page": true},
+			},
+			wantTaskCount: 2,
+			wantCallCount: 2,
+		},
+		{
+			name: "empty_list",
+			pages: []map[string]any{
+				{"tasks": []map[string]any{}, "last_page": true},
+			},
+			wantTaskCount: 0,
+			wantCallCount: 1,
+		},
+		{
+			name: "exactly_100_then_empty",
+			pages: []map[string]any{
+				{"tasks": make100Tasks(), "last_page": false},
+				{"tasks": []map[string]any{}, "last_page": true},
+			},
+			wantTaskCount: 100,
+			wantCallCount: 2,
+		},
+		{
+			name: "error_on_second_page",
+			pages: []map[string]any{
+				{"tasks": []map[string]any{makeTask("t1")}, "last_page": false},
+			},
+			wantErr:       true,
+			wantCallCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				page := 0
+				if p := r.URL.Query().Get("page"); p != "" {
+					_, _ = fmt.Sscanf(p, "%d", &page)
+				}
+				callCount.Add(1)
+
+				if tt.wantErr && page >= len(tt.pages) {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				if page >= len(tt.pages) {
+					t.Errorf("unexpected page request: %d", page)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(tt.pages[page])
+			}))
+			defer server.Close()
+
+			client := newTestClient(server, "list123")
+			tasks, err := client.GetTasks(context.Background())
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("GetTasks() error = %v", err)
+				}
+				if len(tasks) != tt.wantTaskCount {
+					t.Errorf("expected %d tasks, got %d", tt.wantTaskCount, len(tasks))
+				}
+			}
+
+			if got := int(callCount.Load()); got != tt.wantCallCount {
+				t.Errorf("expected %d API calls, got %d", tt.wantCallCount, got)
+			}
+		})
 	}
 }
 

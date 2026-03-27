@@ -96,7 +96,7 @@ func TestNew_NilLoggerFallback(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, nil, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, nil, nil, "")
 
 	// Should not panic; uses slog.Default()
 	o.tick(context.Background())
@@ -113,7 +113,7 @@ func TestTick_DispatchesTriggerStatusTasks(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.tick(context.Background())
 
@@ -143,7 +143,7 @@ func TestTick_GetTasksError(t *testing.T) {
 		taskMap:     map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, defaultLogger, nil, "")
 
 	// Should not panic
 	o.tick(context.Background())
@@ -163,7 +163,7 @@ func TestReconcile_TerminalStatusReleased(t *testing.T) {
 		},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 	o.state.MarkRunning("task-1")
@@ -183,7 +183,7 @@ func TestReconcile_ProcessingStatusKept(t *testing.T) {
 		},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 	o.state.MarkRunning("task-1")
@@ -203,7 +203,7 @@ func TestReconcile_NonProcessingStatusReleased(t *testing.T) {
 		},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 	o.state.MarkRunning("task-1")
@@ -223,7 +223,7 @@ func TestReconcile_TriggerStatusReleased(t *testing.T) {
 		},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 	o.state.MarkRunning("task-1")
@@ -241,7 +241,7 @@ func TestReconcile_APIErrorSkips(t *testing.T) {
 		taskMap:    map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: defaultSM}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 	o.state.MarkRunning("task-1")
@@ -260,7 +260,7 @@ func TestDispatch_NormalFlow(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
 	o.dispatch(context.Background(), task, 1)
@@ -307,7 +307,7 @@ func TestDispatch_AlreadyClaimed(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.state.Claim("task-1")
 
@@ -328,7 +328,7 @@ func TestDispatch_UpdateStatusError(t *testing.T) {
 		taskMap:   map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 	defer o.shutdown()
 
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
@@ -355,7 +355,7 @@ func TestDispatch_TriggerWorkflowError(t *testing.T) {
 	dispatcher := &mockWorkflowDispatcher{
 		triggerErr: fmt.Errorf("trigger error"),
 	}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 	defer o.shutdown()
 
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
@@ -373,7 +373,7 @@ func TestDispatch_DuplicatePrevention(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
 	o.dispatch(context.Background(), task, 1)
@@ -392,7 +392,7 @@ func TestDispatch_CodePhase(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForCode}
 	o.dispatch(context.Background(), task, 1)
@@ -426,7 +426,7 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: 50 * time.Millisecond, StatusMapping: defaultSM}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: 50 * time.Millisecond, StatusMapping: defaultSM}, defaultLogger, nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -509,7 +509,7 @@ func TestHandleRetry(t *testing.T) {
 				},
 			}
 			dispatcher := &mockWorkflowDispatcher{}
-			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 			defer o.shutdown()
 
 			o.ctx = context.Background()
@@ -552,7 +552,7 @@ func TestTick_MaxConcurrentTasksLimit(t *testing.T) {
 	}
 	dispatcher := &mockWorkflowDispatcher{}
 	limiter := NewConcurrencyLimiter(2)
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter, "")
 
 	// 外部で1スロット消費済み（別プロジェクトのタスク想定）
 	limiter.TryAcquire()
@@ -578,7 +578,7 @@ func TestTick_NilLimiterIsUnlimited(t *testing.T) {
 		taskMap: map[string]*clickup.Task{},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 
 	o.tick(context.Background())
 
@@ -597,7 +597,7 @@ func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
 		},
 	}
 	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
 	o.ctx = context.Background()
 	defer o.shutdown()
 
@@ -638,5 +638,80 @@ func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
 	defer dispatcher.mu.Unlock()
 	if len(dispatcher.triggerCalls) != 0 {
 		t.Errorf("expected 0 trigger calls (old attempt should be ignored), got %d", len(dispatcher.triggerCalls))
+	}
+}
+
+func TestStatus_RunningTasksAppearInStatus(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "owner/repo")
+
+	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+	o.dispatch(context.Background(), task, 1)
+
+	s := o.Status()
+	if s.Project != "owner/repo" {
+		t.Errorf("project = %q, want owner/repo", s.Project)
+	}
+	if len(s.RunningTasks) != 1 {
+		t.Fatalf("expected 1 running task, got %d", len(s.RunningTasks))
+	}
+	if s.RunningTasks[0].TaskID != "task-1" {
+		t.Errorf("running task_id = %q, want task-1", s.RunningTasks[0].TaskID)
+	}
+	if s.RunningTasks[0].StartedAt.IsZero() {
+		t.Error("started_at should not be zero")
+	}
+}
+
+func TestStatus_RetryPendingAppearsInStatus(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "owner/repo")
+	defer o.shutdown()
+
+	o.ctx = context.Background()
+	o.scheduleRetry("task-2", "CODE", 2, fmt.Errorf("some error"))
+
+	s := o.Status()
+	if len(s.RetryPending) != 1 {
+		t.Fatalf("expected 1 retry pending, got %d", len(s.RetryPending))
+	}
+	rp := s.RetryPending[0]
+	if rp.TaskID != "task-2" {
+		t.Errorf("retry task_id = %q, want task-2", rp.TaskID)
+	}
+	if rp.Phase != "CODE" {
+		t.Errorf("retry phase = %q, want CODE", rp.Phase)
+	}
+	if rp.Attempt != 2 {
+		t.Errorf("retry attempt = %d, want 2", rp.Attempt)
+	}
+	if rp.RetryAfter.IsZero() {
+		t.Error("retry_after should not be zero")
+	}
+}
+
+func TestStatus_ShutdownClearsRetryPending(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "")
+
+	o.ctx = context.Background()
+	o.scheduleRetry("task-3", "SPEC", 1, fmt.Errorf("error"))
+	o.shutdown()
+
+	s := o.Status()
+	if len(s.RetryPending) != 0 {
+		t.Errorf("expected empty retry pending after shutdown, got %d", len(s.RetryPending))
 	}
 }

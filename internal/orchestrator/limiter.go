@@ -54,3 +54,11 @@ func (l *ConcurrencyLimiter) ActiveCount() int {
 	defer l.mu.Unlock()
 	return l.active
 }
+
+// MaxConcurrent は設定された最大並行数を返す。0 は無制限を意味する
+func (l *ConcurrencyLimiter) MaxConcurrent() int {
+	if l == nil {
+		return 0
+	}
+	return l.maxConcurrent
+}

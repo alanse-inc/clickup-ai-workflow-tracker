@@ -74,3 +74,15 @@ func (s *AgentState) RunningTaskIDs() []string {
 	}
 	return ids
 }
+
+// RunningTasksSnapshot は running tasks の map コピーを返す
+func (s *AgentState) RunningTasksSnapshot() map[string]time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snapshot := make(map[string]time.Time, len(s.runningTasks))
+	for id, t := range s.runningTasks {
+		snapshot[id] = t
+	}
+	return snapshot
+}

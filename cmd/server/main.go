@@ -17,6 +17,7 @@ import (
 	"github.com/rikeda71/clickup-ai-orchestrator/internal/health"
 	"github.com/rikeda71/clickup-ai-orchestrator/internal/logging"
 	"github.com/rikeda71/clickup-ai-orchestrator/internal/orchestrator"
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/status"
 )
 
 func main() {
@@ -69,8 +70,20 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	providers := make([]status.StatusProvider, len(cfg.Projects))
+	orchs := make([]*orchestrator.Orchestrator, len(cfg.Projects))
+	for i, proj := range cfg.Projects {
+		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
+		projectLogger := logger.With("project", projectLabel)
+		orch := orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter, projectLabel)
+		orchs[i] = orch
+		providers[i] = orch
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("GET /health", health.NewHandler(clickupClients[0], dispatchers[0]))
+	mux.Handle("GET /status", status.NewHandler(limiter, providers))
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
@@ -99,9 +112,6 @@ func main() {
 
 	var wg sync.WaitGroup
 	for i, proj := range cfg.Projects {
-		projectLogger := logger.With("project", proj.GitHubOwner+"/"+proj.GitHubRepo)
-		orch := orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter)
-
 		slog.InfoContext(ctx, "service_started",
 			"poll_interval_ms", cfg.PollIntervalMS,
 			"clickup_list_id", proj.ClickUpListID,
@@ -112,7 +122,7 @@ func main() {
 		go func(o *orchestrator.Orchestrator) {
 			defer wg.Done()
 			o.Run(ctx)
-		}(orch)
+		}(orchs[i])
 	}
 
 	select {

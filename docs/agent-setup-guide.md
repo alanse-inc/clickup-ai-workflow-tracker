@@ -1,185 +1,160 @@
 # agent.yaml セットアップガイド
 
-このガイドでは、clickup-ai-orchestrator の `agent.yaml` を新しいリポジトリに導入し、ClickUp タスク駆動で Claude Code による仕様作成・コード実装を自動化する手順を説明します。
+新しいリポジトリに `agent.yaml` を導入し、ClickUp タスク駆動で Claude Code による仕様作成・コード実装を自動化する手順です。
 
-## 1. 前提条件
+## クイックチェックリスト
 
-- ClickUp ワークスペースに **GitHub Integration**（GitHub App）がインストール済みであること
-  - ClickUp Settings > Integrations > GitHub からインストールできます
-  - PR とタスクの自動リンクに使用されます
-- 対象リポジトリへの管理者権限（GitHub Secrets の設定に必要）
-- `clickup-ai-orchestrator-deployment` リポジトリへのアクセス権（オーケストレーター設定の変更に必要）
+> 全体像を把握するためのチェックリストです。詳細は各セクションを参照してください。
 
-## 2. agent.yaml のコピーと配置
+- [ ] ClickUp に GitHub Integration をインストール済み
+- [ ] `agent.yaml` を対象リポジトリにコピー
+- [ ] GitHub Secrets を設定（`CLICKUP_API_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`）
+- [ ] ClickUp リストを作成しステータスを設定
+- [ ] `projects.yaml` にエントリを追加してデプロイ
+- [ ] 動作確認（SPEC → CODE フロー）
 
-本リポジトリの `.github/workflows/agent.yaml` を、対象リポジトリの `.github/workflows/agent.yaml` にそのままコピーしてください。
+---
+
+## 前提条件
+
+- ClickUp に **GitHub Integration** がインストール済み（Settings > Integrations > GitHub）
+- 対象リポジトリへの管理者権限
+- `clickup-ai-orchestrator-deployment` リポジトリへのアクセス権
+
+---
+
+## Step 1: agent.yaml のコピー
+
+本リポジトリの `.github/workflows/agent.yaml` を対象リポジトリにそのままコピーします。
 
 ```bash
-# 例: 対象リポジトリのルートで実行
 mkdir -p .github/workflows
 cp /path/to/clickup-ai-orchestrator/.github/workflows/agent.yaml .github/workflows/agent.yaml
 ```
 
-ファイルの内容は変更不要です。agent.yaml はポータブルに設計されており、ステータス名などの設定値はオーケストレーターから `workflow_dispatch` の入力パラメータとして渡されます。
+ファイルの内容は変更不要です。設定値はオーケストレーターから `workflow_dispatch` の入力パラメータとして渡されます。
 
-## 3. GitHub Secrets の設定
+---
 
-対象リポジトリの Settings > Secrets and variables > Actions で以下の Secrets を設定します。
+## Step 2: GitHub Secrets の設定
 
-### 3.1 `CLICKUP_API_TOKEN`（必須）
+対象リポジトリの **Settings > Secrets and variables > Actions** で設定します。
 
-ClickUp API トークンです。ワークフロー内でタスク情報の取得・ステータス更新に使用します。
+### 必須
 
-**取得手順:**
+| Secret 名 | 説明 | 設定方法 |
+|-----------|------|---------|
+| `CLICKUP_API_TOKEN` | ClickUp API トークン | ClickUp > Settings > Apps > API Token で発行 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code Action 用トークン | ターミナルで `claude /install-github-app` を実行（自動登録される） |
 
-1. ClickUp にログイン
-2. 左下のアバター > **Settings** を開く
-3. サイドバーの **Apps** をクリック
-4. **API Token** セクションで **Generate** をクリック（既存トークンがある場合はそれを使用）
-5. 表示されたトークンをコピー
+> API トークンはユーザー単位で発行されます。Bot 用サービスアカウントでの発行を推奨します。
 
-> **Note**: API トークンはワークスペース単位ではなくユーザー単位で発行されます。Bot 用のサービスアカウントで発行することを推奨します。
+### 推奨: CI 自動トリガー用
 
-### 3.2 `CLAUDE_CODE_OAUTH_TOKEN`（必須）
+Claude Code が作成した PR で CI を自動トリガーするには、以下のいずれかを設定します。
 
-Claude Code Action の実行に必要な OAuth トークンです。
+**方法 A: GitHub App（推奨）**
 
-**設定手順:**
+| Secret 名 | 説明 |
+|-----------|------|
+| `CI_APP_ID` | オーケストレーターと同じ GitHub App の App ID |
+| `CI_APP_PRIVATE_KEY` | 同 App の Private Key |
 
-1. ターミナルで以下のコマンドを実行:
-   ```bash
-   claude /install-github-app
-   ```
-2. ブラウザが開き、GitHub App のインストールフローが始まります
-3. 対象リポジトリを選択してインストール
-4. 完了すると `CLAUDE_CODE_OAUTH_TOKEN` が自動的に GitHub Secrets に登録されます
+Organization Secret にする場合は `MYORG_CI_APP_ID` のように組織名を含め、`agent.yaml` の `app-id` / `private-key` を差し替えてください。
 
-### 3.3 `CI_APP_ID` / `CI_APP_PRIVATE_KEY`（推奨）
+**方法 B: Personal Access Token（代替）**
 
-GitHub App のインストールトークンを生成するために使用します。設定すると、Claude Code が作成した PR で CI ワークフローが自動的にトリガーされます。
+| Secret 名 | 必要な権限（Fine-grained） |
+|-----------|--------------------------|
+| `GITHUB_PAT` | Contents: Read and write / Pull requests: Read and write |
 
-> **背景**: GitHub Actions のデフォルト `GITHUB_TOKEN` で push/PR 作成すると、セキュリティ上の理由で他のワークフロー（CI など）がトリガーされません。GitHub App トークンを使うことでこの制限を回避できます。
+> トークンの優先順位: **GitHub App > GITHUB_PAT > GITHUB_TOKEN**。いずれも未設定の場合は `GITHUB_TOKEN` にフォールバックしますが、CI は自動トリガーされません。
 
-オーケストレーターが使用している GitHub App と同じものを流用できます。
+### オプション
 
-**設定手順:**
+| Secret 名 | 説明 |
+|-----------|------|
+| `CLICKUP_AGENT_ERROR_FIELD_ID` | ワークフロー失敗時のエラーメッセージを ClickUp タスクに記録するカスタムフィールド ID |
 
-1. オーケストレーターの環境変数に設定済みの `GITHUB_APP_ID` と `GITHUB_APP_PRIVATE_KEY` の値を取得
-2. リポジトリまたは Organization の Secrets に `CI_APP_ID` / `CI_APP_PRIVATE_KEY` として登録
-
-> **Tip**: Organization レベルの Secret として設定する場合は、他用途との衝突を避けるために `MYORG_CI_APP_ID` / `MYORG_CI_APP_PRIVATE_KEY` のように組織名を含む名前に変更し、agent.yaml のコメントに従って `app-id` / `private-key` を差し替えてください。
-
-> **Tip**: Organization レベルの Secret として設定すると、全リポジトリで共有できます。
-
-### 3.4 `GITHUB_PAT`（代替）
-
-GitHub App を利用できない場合の代替として、Personal Access Token も使用できます。
-
-**必要な権限（Fine-grained token）:**
-- **Contents**: Read and write
-- **Pull requests**: Read and write
-
-GitHub Secrets に `GITHUB_PAT` として登録してください。
-
-> **Note**: トークンの優先順位は **GitHub App → GITHUB_PAT → GITHUB_TOKEN** です。いずれも未設定の場合は `GITHUB_TOKEN` にフォールバックしますが、CI は自動トリガーされません。
-
-### 3.5 `CLICKUP_AGENT_ERROR_FIELD_ID`（オプション）
-
-ワークフロー失敗時にエラーメッセージを ClickUp タスクのカスタムフィールドに記録するために使用します。設定しない場合、エラー記録ステップはスキップされます。
-
-**取得手順:**
+<details>
+<summary>CLICKUP_AGENT_ERROR_FIELD_ID の取得手順</summary>
 
 1. ClickUp の対象リストに **`agent_error`**（テキスト型）カスタムフィールドを作成
-2. 以下のコマンドでフィールド ID を取得:
+2. API でフィールド ID を取得:
    ```bash
    curl -s "https://api.clickup.com/api/v2/list/{list_id}/field" \
      -H "Authorization: <CLICKUP_API_TOKEN>" \
      | jq '.fields[] | select(.name == "agent_error") | .id'
    ```
 3. 取得した ID を GitHub Secrets に登録
+</details>
 
-## 4. オーケストレーター側の設定
+---
 
-### 4.1 ClickUp リストの作成
+## Step 3: オーケストレーター側の設定
 
-対象プロジェクト用の ClickUp リストを作成し、以下のステータスを順番通りに設定してください:
+### 3-1. ClickUp リストの作成
 
-| 順序 | ステータス名 | 担当 | 説明 |
-|------|-------------|------|------|
-| 1 | `ready for spec` | 人間 | AI に仕様作成を依頼（トリガー） |
-| 2 | `generating spec` | AI | 仕様書を生成中 |
-| 3 | `spec review` | 人間 | 仕様書をレビュー |
-| 4 | `ready for code` | 人間 | AI に実装を依頼（トリガー） |
-| 5 | `implementing` | AI | コード実装・PR 作成中 |
-| 6 | `pr review` | 人間 | PR をレビュー・マージ |
-| 7 | `closed` | — | 完了（Closed カテゴリ） |
+対象プロジェクト用のリストを作成し、以下のステータスを **この順番で** 設定します。
 
-> **Note**: ステータス名は小文字で比較されます。表記は自由ですが、正規化後に上記の値と一致する必要があります。
+| ステータス名 | 担当 | 説明 |
+|-------------|------|------|
+| `ready for spec` | 人間 | AI に仕様作成を依頼（トリガー） |
+| `generating spec` | AI | 仕様書を生成中 |
+| `spec review` | 人間 | 仕様書をレビュー |
+| `ready for code` | 人間 | AI に実装を依頼（トリガー） |
+| `implementing` | AI | コード実装・PR 作成中 |
+| `pr review` | 人間 | PR をレビュー・マージ |
+| `closed` | — | 完了（Closed カテゴリ） |
 
-### 4.2 projects.yaml にエントリを追加
+> ステータス名は小文字で比較されるため、`Ready for Spec` でも `ready for spec` でも動作します。
 
-`clickup-ai-orchestrator-deployment` リポジトリの `projects.yaml` に新しいエントリを追加します。
+### 3-2. projects.yaml にエントリを追加
+
+`clickup-ai-orchestrator-deployment` リポジトリの `projects.yaml` に追加します。
 
 ```yaml
 projects:
-  - clickup_list_id: "XXXXXXXXX"       # ClickUp リストの ID
-    github_owner: "your-org"            # GitHub オーナー（Organization or User）
-    github_repo: "your-repo"            # GitHub リポジトリ名
+  - clickup_list_id: "XXXXXXXXX"       # ClickUp リスト ID（URL の /li/{list_id} から取得）
+    github_owner: "your-org"
+    github_repo: "your-repo"
     # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)
 ```
 
-ClickUp リスト ID は、ClickUp でリストを開いた際の URL から確認できます:
-`https://app.clickup.com/{workspace_id}/v/li/{list_id}`
+### 3-3. デプロイ
 
-### 4.3 デプロイの実行
+`projects.yaml` の変更を PR 経由でマージ後、deployment リポジトリの GitHub Actions で **Deploy to Cloud Run** ワークフローを手動実行（tag=main）してください。
 
-`projects.yaml` の変更を PR 経由でマージした後、deployment リポジトリの GitHub Actions で `Deploy to Cloud Run` ワークフローを手動実行（`workflow_dispatch`、tag=main）してください。
+---
 
-## 5. 動作確認
+## Step 4: 動作確認
 
-### 5.1 SPEC フェーズの確認
+### SPEC フェーズ
 
-1. ClickUp で対象リストにタスクを作成し、タスク名と説明を記述
-2. タスクのステータスを **「ready for spec」** に移動
-3. 約 10 秒以内にオーケストレーターがタスクを検知し、ステータスが **「generating spec」** に自動変更される
-4. 対象リポジトリの **Actions** タブで「AI Agent」ワークフローが実行されていることを確認
-5. ワークフロー完了後、ClickUp タスクの Description に仕様書（Markdown）が書き込まれ、ステータスが **「spec review」** に遷移する
+1. ClickUp でタスクを作成し、タスク名と説明を記述
+2. ステータスを **「ready for spec」** に移動
+3. 約 10 秒で **「generating spec」** に自動変更される
+4. Actions タブで「AI Agent」ワークフローの実行を確認
+5. 完了後、タスクの Description に仕様書が書き込まれ **「spec review」** に遷移
 
-### 5.2 CODE フェーズの確認
+### CODE フェーズ
 
-1. 仕様書の内容を確認・必要に応じて修正
-2. タスクのステータスを **「ready for code」** に移動
-3. ステータスが **「implementing」** に自動変更され、ワークフローが実行される
-4. ワークフロー完了後、PR が作成され、ステータスが **「pr review」** に遷移する
-5. PR の description に `Closes CU-{task_id}` が含まれていることを確認
+1. 仕様書を確認・必要に応じて修正
+2. ステータスを **「ready for code」** に移動
+3. **「implementing」** に自動変更、ワークフロー実行
+4. 完了後、PR が作成され **「pr review」** に遷移
+5. PR description に `Closes CU-{task_id}` が含まれていることを確認
 
-> **Tip**: 仕様策定が不要な軽微なタスクでは、`ready for spec` を経由せず直接 `ready for code` に移動するショートカットフローも使用できます。
+> 仕様策定が不要なタスクは `ready for spec` を経由せず直接 `ready for code` に移動できます。
 
-## 6. トラブルシューティング
+---
 
-### ワークフローが起動しない
+## トラブルシューティング
 
-- **オーケストレーターのログを確認**: Cloud Run のログで `task_detected` / `task_dispatched` イベントが出力されているか確認
-- **ステータス名の不一致**: ClickUp リストのステータス名が正しく設定されているか確認。ステータスは小文字化して比較されるため、`Ready for Spec` と `ready for spec` はどちらも有効
-- **projects.yaml の設定ミス**: `clickup_list_id`、`github_owner`、`github_repo` が正しいか確認
-- **GitHub 認証エラー**: オーケストレーターの `GITHUB_PAT` または `GITHUB_APP_*` の権限に、対象リポジトリの Actions トリガー権限（`workflow` スコープ）が含まれているか確認
-
-### `status_validation_failed`
-
-オーケストレーター起動時に ClickUp リストの必要なステータスが見つからない場合に発生します。ClickUp リストに全ステータスが設定されているか、タイポがないか確認してください。
-
-### `permission_denied` / 権限エラー
-
-- **GitHub Secrets**: `CLICKUP_API_TOKEN` と `CLAUDE_CODE_OAUTH_TOKEN` が正しく設定されているか確認
-- **GitHub Token のスコープ**: ワークフローの `permissions` に `contents: write` と `pull-requests: write` が設定されていることを確認（agent.yaml にデフォルトで含まれています）
-- **ClickUp API Token**: トークンが有効であり、対象リストへのアクセス権があるか確認
-
-### Bot rejected / Claude Code Action エラー
-
-- `CLAUDE_CODE_OAUTH_TOKEN` が正しく設定されているか確認
-- `claude /install-github-app` で対象リポジトリに GitHub App がインストールされているか確認
-- ワークフロー内の `allowed_bots: '*'` により、すべての Bot トリガーが許可されています。この設定を変更していないか確認
-
-### ワークフローがタイムアウトする
-
-agent.yaml の `timeout-minutes` は **30 分**に設定されています。大規模なリポジトリや複雑なタスクでタイムアウトする場合は、タスクの粒度を小さくすることを検討してください。
+| 症状 | 確認ポイント |
+|------|------------|
+| ワークフローが起動しない | Cloud Run ログで `task_detected` / `task_dispatched` が出ているか確認。`projects.yaml` の設定値やステータス名のタイポをチェック。オーケストレーターの GitHub 認証に `workflow` スコープがあるか確認 |
+| `status_validation_failed` | ClickUp リストに全ステータスが設定されているか確認（タイポ注意） |
+| `permission_denied` | `CLICKUP_API_TOKEN` と `CLAUDE_CODE_OAUTH_TOKEN` が正しいか確認。ワークフローの `permissions` に `contents: write` と `pull-requests: write` があるか確認 |
+| Bot rejected / Claude Code Action エラー | `claude /install-github-app` で対象リポジトリに App がインストールされているか確認。`allowed_bots: '*'` が変更されていないか確認 |
+| タイムアウト | `timeout-minutes` は 30 分。タスクの粒度を小さくすることを検討 |

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.1.0...v1.2.0) (2026-03-27)
+
+
+### Features
+
+* ClickUp API GetTasks のページネーション対応 ([#64](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/64)) ([c3f5a48](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/c3f5a48dd104f0e29cfae0d34c293320a9379ed9))
+
+
+### Bug Fixes
+
+* agent.yaml の GitHub App シークレット名を CI_APP_* に変更 ([1d9a855](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/1d9a85595b122f90fce99ff257d94d28f80b6ff4))
+* Claude Code Review で Bot PR を許可する allowed_bots を追加 ([df2f98c](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/df2f98cb3fc973ea75f1e4c1aca01f8aa5769f45))
+* ClickUp API クライアントのエラーレスポンスにボディを含める ([#62](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/62)) ([0443232](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/0443232d3f64bcdfd4db357af6b2b66a7014ee6a))
+
 ## [1.1.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.0.4...v1.1.0) (2026-03-27)
 
 

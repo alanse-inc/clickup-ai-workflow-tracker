@@ -160,13 +160,16 @@ jobs:
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
+          ORIGINAL: ${{ steps.fetch_task.outputs.task_description }}
         run: |
-          ORIGINAL=$(curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
-            "https://api.clickup.com/api/v2/task/${TASK_ID}" \
-            -H "Authorization: ${CLICKUP_API_TOKEN}" | jq -r '.description // ""')
-          SPEC=$(jq -r '[.. | objects | select(.type == "result") | .result // empty] | last' \
+          SPEC=$(jq -r '[.. | objects | select(.type == "result") | .result // empty] | last // ""' \
             /home/runner/work/_temp/claude-execution-output.json)
-          COMBINED=$(printf '%s\n\n---\n\n## AI Generated Spec\n\n%s' "$ORIGINAL" "$SPEC")
+          if [ -z "$SPEC" ]; then
+            echo "No spec output found, skipping description update"
+            exit 0
+          fi
+          CLEAN_ORIGINAL=$(printf '%s' "$ORIGINAL" | awk '/^---$/{found_sep=1; buf=$0; next} found_sep && /^$/{buf=buf ORS; next} found_sep && /^## AI Generated Spec/{exit} found_sep{print buf $0; buf=""; found_sep=0; next} {print}')
+          COMBINED=$(printf '%s\n\n---\n\n## AI Generated Spec\n\n%s' "$CLEAN_ORIGINAL" "$SPEC")
           jq -n --arg md "$COMBINED" '{markdown_description: $md}' | \
           curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \
             -X PUT "https://api.clickup.com/api/v2/task/${TASK_ID}" \

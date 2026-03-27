@@ -589,6 +589,172 @@ func TestTick_NilLimiterIsUnlimited(t *testing.T) {
 	}
 }
 
+func TestRecoverProcessingTasks(t *testing.T) {
+	sm := defaultSM
+	tests := []struct {
+		name            string
+		tasks           []clickup.Task
+		getTasksErr     error
+		updateErr       error
+		wantUpdateCalls []updateCall
+	}{
+		{
+			name:  "generating spec タスクを ready for spec に巻き戻す",
+			tasks: []clickup.Task{{ID: "task-1", Status: sm.GeneratingSpec}},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+			},
+		},
+		{
+			name:  "implementing タスクを ready for code に巻き戻す",
+			tasks: []clickup.Task{{ID: "task-1", Status: sm.Implementing}},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name: "複数の processing タスクをまとめて復旧する",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.GeneratingSpec},
+				{ID: "task-2", Status: sm.Implementing},
+				{ID: "task-3", Status: sm.ReadyForSpec},
+				{ID: "task-4", Status: sm.Closed},
+			},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+				{TaskID: "task-2", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name:            "GetTasks エラー時は UpdateTaskStatus を呼ばない",
+			tasks:           nil,
+			getTasksErr:     fmt.Errorf("api error"),
+			wantUpdateCalls: nil,
+		},
+		{
+			name: "UpdateTaskStatus エラーは継続する（全タスクに試みる）",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.GeneratingSpec},
+				{ID: "task-2", Status: sm.Implementing},
+			},
+			updateErr: fmt.Errorf("update error"),
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+				{TaskID: "task-2", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name: "processing タスクがない場合は UpdateTaskStatus を呼ばない",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.ReadyForSpec},
+				{ID: "task-2", Status: sm.SpecReview},
+			},
+			wantUpdateCalls: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &mockTaskClient{
+				tasks:       tt.tasks,
+				taskMap:     map[string]*clickup.Task{},
+				getTasksErr: tt.getTasksErr,
+				updateErr:   tt.updateErr,
+			}
+			dispatcher := &mockWorkflowDispatcher{}
+			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+
+			o.recoverProcessingTasks(context.Background())
+
+			fetcher.mu.Lock()
+			defer fetcher.mu.Unlock()
+
+			if len(fetcher.updateCalls) != len(tt.wantUpdateCalls) {
+				t.Fatalf("expected %d update calls, got %d: %v", len(tt.wantUpdateCalls), len(fetcher.updateCalls), fetcher.updateCalls)
+			}
+			for i, want := range tt.wantUpdateCalls {
+				got := fetcher.updateCalls[i]
+				if got.TaskID != want.TaskID || got.Status != want.Status {
+					t.Errorf("update call[%d] = %v, want %v", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// sequentialTaskClient は GetTasks の呼び出し回数に応じて異なるタスクリストを返すモック
+type sequentialTaskClient struct {
+	mockTaskClient
+	callIndex int
+	taskSets  [][]clickup.Task
+}
+
+func (s *sequentialTaskClient) GetTasks(ctx context.Context) ([]clickup.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getTasksCalls++
+	if s.getTasksErr != nil {
+		return nil, s.getTasksErr
+	}
+	if s.callIndex < len(s.taskSets) {
+		tasks := s.taskSets[s.callIndex]
+		s.callIndex++
+		return tasks, nil
+	}
+	return []clickup.Task{}, nil
+}
+
+func TestRun_RecoveryCalledBeforeFirstTick(t *testing.T) {
+	sm := defaultSM
+
+	// 1回目の GetTasks（recoverProcessingTasks）では processing タスクを返す
+	// 2回目の GetTasks（tick 内）では trigger ステータスのタスクを返す（巻き戻し済みを模倣）
+	fetcher := &sequentialTaskClient{
+		mockTaskClient: mockTaskClient{taskMap: map[string]*clickup.Task{}},
+		taskSets: [][]clickup.Task{
+			{{ID: "task-1", Status: sm.GeneratingSpec}},
+			{{ID: "task-1", Status: sm.ReadyForSpec}},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Hour, StatusMapping: sm}, defaultLogger, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o.ctx = ctx
+
+	// recoverProcessingTasks を実行: generating spec → ready for spec に巻き戻す
+	o.recoverProcessingTasks(ctx)
+
+	// UpdateTaskStatus が呼ばれたことを確認（recovery による巻き戻し）
+	fetcher.mu.Lock()
+	if len(fetcher.updateCalls) != 1 {
+		fetcher.mu.Unlock()
+		t.Fatalf("expected 1 update call after recovery, got %d", len(fetcher.updateCalls))
+	}
+	if fetcher.updateCalls[0] != (updateCall{TaskID: "task-1", Status: sm.ReadyForSpec}) {
+		fetcher.mu.Unlock()
+		t.Errorf("unexpected update call: %v", fetcher.updateCalls[0])
+	}
+	fetcher.mu.Unlock()
+
+	// tick を実行: 2回目の GetTasks で ready for spec タスクを取得し dispatch される
+	o.tick(ctx)
+
+	// TriggerWorkflow が呼ばれたことを確認（tick による dispatch）
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 1 {
+		t.Fatalf("expected 1 trigger call after tick, got %d", len(dispatcher.triggerCalls))
+	}
+	if dispatcher.triggerCalls[0].TaskID != "task-1" {
+		t.Errorf("expected trigger for task-1, got %s", dispatcher.triggerCalls[0].TaskID)
+	}
+	if dispatcher.triggerCalls[0].Phase != string(clickup.PhaseSpec) {
+		t.Errorf("expected phase SPEC, got %s", dispatcher.triggerCalls[0].Phase)
+	}
+}
+
 func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
 	sm := defaultSM
 	fetcher := &mockTaskClient{

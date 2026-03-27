@@ -37,7 +37,7 @@ func clearEnvs(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"CLICKUP_API_TOKEN",
-		"GITHUB_PAT", "POLL_INTERVAL_MS",
+		"GITHUB_PAT", "POLL_INTERVAL_MS", "SHUTDOWN_TIMEOUT_MS",
 		"CLICKUP_STATUS_READY_FOR_SPEC", "CLICKUP_STATUS_GENERATING_SPEC",
 		"CLICKUP_STATUS_SPEC_REVIEW", "CLICKUP_STATUS_READY_FOR_CODE",
 		"CLICKUP_STATUS_IMPLEMENTING", "CLICKUP_STATUS_PR_REVIEW",
@@ -389,6 +389,56 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "MAX_CONCURRENT_TASKS must be non-negative",
+		},
+		{
+			name: "SHUTDOWN_TIMEOUT_MS default is 30000",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.ShutdownTimeoutMS != 30000 {
+					t.Errorf("ShutdownTimeoutMS = %d, want 30000", cfg.ShutdownTimeoutMS)
+				}
+			},
+		},
+		{
+			name: "SHUTDOWN_TIMEOUT_MS set to positive value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("SHUTDOWN_TIMEOUT_MS", "5000")
+			},
+			check: func(t *testing.T, cfg *Config) {
+				if cfg.ShutdownTimeoutMS != 5000 {
+					t.Errorf("ShutdownTimeoutMS = %d, want 5000", cfg.ShutdownTimeoutMS)
+				}
+			},
+		},
+		{
+			name: "SHUTDOWN_TIMEOUT_MS invalid value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("SHUTDOWN_TIMEOUT_MS", "not-a-number")
+			},
+			wantErr:     true,
+			errContains: "invalid SHUTDOWN_TIMEOUT_MS",
+		},
+		{
+			name: "SHUTDOWN_TIMEOUT_MS zero value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("SHUTDOWN_TIMEOUT_MS", "0")
+			},
+			wantErr:     true,
+			errContains: "SHUTDOWN_TIMEOUT_MS must be positive",
+		},
+		{
+			name: "SHUTDOWN_TIMEOUT_MS negative value",
+			setup: func(t *testing.T) {
+				setRequiredEnvs(t)
+				t.Setenv("SHUTDOWN_TIMEOUT_MS", "-1")
+			},
+			wantErr:     true,
+			errContains: "SHUTDOWN_TIMEOUT_MS must be positive",
 		},
 	}
 

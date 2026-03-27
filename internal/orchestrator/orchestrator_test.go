@@ -27,6 +27,7 @@ type mockTaskClient struct {
 	updateCalls   []updateCall
 	getTasksCalls int
 	getTaskCalls  []string
+	updateDelay   time.Duration // 0 の場合は即時返す
 }
 
 type updateCall struct {
@@ -58,6 +59,9 @@ func (m *mockTaskClient) GetTask(_ context.Context, taskID string) (*clickup.Tas
 }
 
 func (m *mockTaskClient) UpdateTaskStatus(_ context.Context, taskID string, status string) error {
+	if m.updateDelay > 0 {
+		time.Sleep(m.updateDelay)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.updateCalls = append(m.updateCalls, updateCall{TaskID: taskID, Status: status})
@@ -586,6 +590,108 @@ func TestTick_NilLimiterIsUnlimited(t *testing.T) {
 	defer dispatcher.mu.Unlock()
 	if len(dispatcher.triggerCalls) != 3 {
 		t.Fatalf("expected 3 trigger calls (unlimited), got %d", len(dispatcher.triggerCalls))
+	}
+}
+
+func TestShutdown_NoActiveDispatch(t *testing.T) {
+	fetcher := &mockTaskClient{taskMap: map[string]*clickup.Task{}}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{
+		PollInterval:    time.Second,
+		StatusMapping:   defaultSM,
+		ShutdownTimeout: 30 * time.Second,
+	}, defaultLogger, nil)
+
+	done := make(chan struct{})
+	go func() {
+		o.shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// OK: no active dispatch, should return immediately
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not complete promptly when no dispatch active")
+	}
+}
+
+func TestShutdown_WaitsForDispatch(t *testing.T) {
+	sm := defaultSM
+	dispatchDelay := 100 * time.Millisecond
+	fetcher := &mockTaskClient{
+		taskMap:     map[string]*clickup.Task{},
+		updateDelay: dispatchDelay,
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{
+		PollInterval:    time.Second,
+		StatusMapping:   sm,
+		ShutdownTimeout: 5 * time.Second,
+	}, defaultLogger, nil)
+
+	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+
+	dispatchDone := make(chan struct{})
+	go func() {
+		o.dispatch(context.Background(), task, 1)
+		close(dispatchDone)
+	}()
+
+	// Give dispatch time to start
+	time.Sleep(10 * time.Millisecond)
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		o.shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown did not complete after dispatch finished")
+	}
+
+	// Verify dispatch completed (UpdateTaskStatus was called)
+	fetcher.mu.Lock()
+	updateCount := len(fetcher.updateCalls)
+	fetcher.mu.Unlock()
+	if updateCount == 0 {
+		t.Fatal("expected UpdateTaskStatus to have been called before shutdown completed")
+	}
+}
+
+func TestShutdown_TimeoutForcesStop(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap:     map[string]*clickup.Task{},
+		updateDelay: 5 * time.Second, // much longer than shutdown timeout
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	shutdownTimeout := 100 * time.Millisecond
+	o := New(fetcher, dispatcher, Config{
+		PollInterval:    time.Second,
+		StatusMapping:   sm,
+		ShutdownTimeout: shutdownTimeout,
+	}, defaultLogger, nil)
+
+	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+
+	go func() {
+		o.dispatch(context.Background(), task, 1)
+	}()
+
+	// Give dispatch time to start
+	time.Sleep(10 * time.Millisecond)
+
+	start := time.Now()
+	o.shutdown()
+	elapsed := time.Since(start)
+
+	// Should have timed out around shutdownTimeout (allow 3x margin)
+	if elapsed > shutdownTimeout*3 {
+		t.Errorf("shutdown took %v, expected around %v", elapsed, shutdownTimeout)
 	}
 }
 

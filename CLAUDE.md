@@ -47,6 +47,7 @@ CI では golangci-lint-action が自動でバイナリを取得するため go.
 | GITHUB_APP_PRIVATE_KEY | Yes (*1) | GitHub App Private Key (base64 エンコードした PEM。macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem`) |
 | POLL_INTERVAL_MS | No | ポーリング間隔ミリ秒 (default: 10000) |
 | MAX_CONCURRENT_TASKS | No | 並行タスク数上限 (default: 0 = 無制限) |
+| SHUTDOWN_TIMEOUT_MS | No | graceful shutdown タイムアウト（ミリ秒）(default: 30000) |
 | PROJECTS_FILE | No | プロジェクト設定ファイルのパス (default: projects.yaml) |
 
 *1: `GITHUB_PAT` と `GITHUB_APP_*` は排他。いずれか一方を設定する。

@@ -24,23 +24,26 @@ type WorkflowDispatcher interface {
 
 // Config は Orchestrator の設定を保持する
 type Config struct {
-	PollInterval  time.Duration
-	StatusMapping clickup.StatusMapping
+	PollInterval    time.Duration
+	StatusMapping   clickup.StatusMapping
+	ShutdownTimeout time.Duration // デフォルト: 30s
 }
 
 // Orchestrator はポーリングループとディスパッチロジックを管理する
 type Orchestrator struct {
-	taskClient    TaskClient
-	dispatcher    WorkflowDispatcher
-	state         *AgentState
-	limiter       *ConcurrencyLimiter
-	pollInterval  time.Duration
-	statusMapping clickup.StatusMapping
-	logger        *slog.Logger
-	retryTimers   map[string]*retryEntry
-	retryMu       sync.Mutex
-	ctx           context.Context
-	done          bool // shutdown が完了したかどうか
+	taskClient      TaskClient
+	dispatcher      WorkflowDispatcher
+	state           *AgentState
+	limiter         *ConcurrencyLimiter
+	pollInterval    time.Duration
+	statusMapping   clickup.StatusMapping
+	logger          *slog.Logger
+	retryTimers     map[string]*retryEntry
+	retryMu         sync.Mutex
+	ctx             context.Context
+	done            bool // shutdown が完了したかどうか
+	shutdownTimeout time.Duration
+	dispatchWg      sync.WaitGroup
 }
 
 type retryEntry struct {
@@ -57,15 +60,20 @@ func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logge
 	if logger == nil {
 		logger = slog.Default()
 	}
+	shutdownTimeout := cfg.ShutdownTimeout
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = 30 * time.Second
+	}
 	return &Orchestrator{
-		taskClient:    taskClient,
-		dispatcher:    dispatcher,
-		state:         NewAgentState(),
-		limiter:       limiter,
-		pollInterval:  cfg.PollInterval,
-		statusMapping: cfg.StatusMapping,
-		logger:        logger,
-		retryTimers:   make(map[string]*retryEntry),
+		taskClient:      taskClient,
+		dispatcher:      dispatcher,
+		state:           NewAgentState(),
+		limiter:         limiter,
+		pollInterval:    cfg.PollInterval,
+		statusMapping:   cfg.StatusMapping,
+		logger:          logger,
+		retryTimers:     make(map[string]*retryEntry),
+		shutdownTimeout: shutdownTimeout,
 	}
 }
 
@@ -93,15 +101,27 @@ func (o *Orchestrator) Run(ctx context.Context) {
 	}
 }
 
-// shutdown は全リトライタイマーを停止する
+// shutdown は全リトライタイマーを停止し、実行中の dispatch 完了を待機する
 func (o *Orchestrator) shutdown() {
 	o.retryMu.Lock()
-	defer o.retryMu.Unlock()
-
 	o.done = true
 	for taskID, entry := range o.retryTimers {
 		entry.timer.Stop()
 		delete(o.retryTimers, taskID)
+	}
+	o.retryMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		o.dispatchWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		o.logger.Info("graceful shutdown completed")
+	case <-time.After(o.shutdownTimeout):
+		o.logger.Warn("graceful shutdown timed out, forcing stop", "timeout", o.shutdownTimeout)
 	}
 }
 
@@ -161,6 +181,9 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。
 // 並行数上限に達した場合は false を返し、呼び出し元で残りタスクの処理を打ち切れるようにする。
 func (o *Orchestrator) dispatch(ctx context.Context, task clickup.Task, attempt int) bool {
+	o.dispatchWg.Add(1)
+	defer o.dispatchWg.Done()
+
 	if !o.state.Claim(task.ID) {
 		o.logger.Warn("task_already_claimed", "task_id", task.ID, "status", task.Status)
 		return true

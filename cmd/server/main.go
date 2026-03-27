@@ -53,8 +53,9 @@ func main() {
 	}
 
 	orchCfg := orchestrator.Config{
-		PollInterval:  time.Duration(cfg.PollIntervalMS) * time.Millisecond,
-		StatusMapping: cfg.StatusMapping,
+		PollInterval:    time.Duration(cfg.PollIntervalMS) * time.Millisecond,
+		StatusMapping:   cfg.StatusMapping,
+		ShutdownTimeout: time.Duration(cfg.ShutdownTimeoutMS) * time.Millisecond,
 	}
 
 	// 全プロジェクトで共有するグローバル並行数リミッタ

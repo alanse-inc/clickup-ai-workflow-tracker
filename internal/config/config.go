@@ -19,13 +19,15 @@ type Config struct {
 	GitHubAppPrivateKey     string
 	PollIntervalMS          int // default: 10000
 	MaxConcurrentTasks      int // default: 0 (unlimited)
+	ShutdownTimeoutMS       int // default: 30000
 	StatusMapping           clickup.StatusMapping
 	Projects                []ProjectConfig
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		PollIntervalMS: 10000,
+		PollIntervalMS:    10000,
+		ShutdownTimeoutMS: 30000,
 	}
 
 	cfg.ClickUpAPIToken = os.Getenv("CLICKUP_API_TOKEN")
@@ -98,6 +100,17 @@ func loadIntEnvs(cfg *Config) error {
 			return fmt.Errorf("MAX_CONCURRENT_TASKS must be non-negative, got %d", parsed)
 		}
 		cfg.MaxConcurrentTasks = parsed
+	}
+
+	if v := os.Getenv("SHUTDOWN_TIMEOUT_MS"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid SHUTDOWN_TIMEOUT_MS value %q: %w", v, err)
+		}
+		if parsed <= 0 {
+			return fmt.Errorf("SHUTDOWN_TIMEOUT_MS must be positive, got %d", parsed)
+		}
+		cfg.ShutdownTimeoutMS = parsed
 	}
 
 	return nil

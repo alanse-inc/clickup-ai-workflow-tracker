@@ -1,31 +1,69 @@
-name: Claude Code Review
+name: "Claude: Code Review"
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    types: [opened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
-      issues: write
+      issues: read
       id-token: write
 
     steps:
+      - name: Minimize old Claude review comments
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get all reviews on this PR
+          reviews=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews --paginate --jq '.[] | select(.user.login == "github-actions[bot]" or .user.login == "claude[bot]" or (.body | test("claude|Claude";"i"))) | .id')
+
+          # Get the latest review ID
+          latest_review_id=$(echo "$reviews" | tail -n 1)
+
+          # Minimize all but the latest review comments using GraphQL
+          for review_id in $reviews; do
+            if [ "$review_id" != "$latest_review_id" ]; then
+              # Get the node_id for GraphQL
+              node_id=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${review_id} --jq '.node_id')
+              if [ -n "$node_id" ]; then
+                gh api graphql -f query='
+                  mutation($id: ID!) {
+                    minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                      minimizedComment { isMinimized }
+                    }
+                  }
+                ' -f id="$node_id" 2>/dev/null || true
+              fi
+            fi
+          done
+
+          # Also minimize old bot comments (non-review comments)
+          comments=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments --paginate --jq '.[] | select(.user.login == "github-actions[bot]" or .user.login == "claude[bot]" or (.body | test("claude|Claude";"i"))) | {id: .id, node_id: .node_id}')
+
+          latest_comment_node_id=$(echo "$comments" | jq -s '.[-1].node_id // empty' -r)
+
+          echo "$comments" | jq -c '.' | while read -r comment; do
+            node_id=$(echo "$comment" | jq -r '.node_id')
+            if [ -n "$node_id" ] && [ "$node_id" != "$latest_comment_node_id" ]; then
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" 2>/dev/null || true
+            fi
+          done
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -35,11 +73,18 @@ jobs:
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
-          allowed_bots: '*'
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+          claude_args: |
+            --model claude-sonnet-4-6
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
+          use_sticky_comment: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
+            日本語でこのPRのコードをレビューしてください。
+            修正されている箇所に応じて、 .claude/agents 配下のエージェント、 .claude/rules 配下のルール、 .claude/skills 配下のスキルを適切に利用してレビューしてください。
+
+            レビュー結果はPRコメントとして残してください。

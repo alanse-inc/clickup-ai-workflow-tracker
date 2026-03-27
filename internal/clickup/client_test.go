@@ -153,7 +153,7 @@ func TestGetTasksPagination(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				page := 0
 				if p := r.URL.Query().Get("page"); p != "" {
-					fmt.Sscanf(p, "%d", &page)
+					_, _ = fmt.Sscanf(p, "%d", &page)
 				}
 				callCount++
 

@@ -10,7 +10,10 @@ on:
       phase:
         description: 'SPEC or CODE'
         required: true
-        type: string
+        type: choice
+        options:
+          - SPEC
+          - CODE
       status_on_success:
         description: 'ClickUp status to set on success'
         required: true
@@ -40,6 +43,13 @@ jobs:
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Validate phase input
+        run: |
+          if [[ "${{ inputs.phase }}" != "SPEC" && "${{ inputs.phase }}" != "CODE" ]]; then
+            echo "Invalid phase: '${{ inputs.phase }}'. Must be 'SPEC' or 'CODE'."
+            exit 1
+          fi
 
       - uses: actions/checkout@v6
 

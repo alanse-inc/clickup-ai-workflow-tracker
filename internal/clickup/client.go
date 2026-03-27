@@ -15,6 +15,14 @@ const defaultBaseURL = "https://api.clickup.com/api/v2"
 
 const defaultHTTPTimeout = 30 * time.Second
 
+const maxErrorBodySize = 512
+
+func readErrorBody(r io.Reader) string {
+	buf := make([]byte, maxErrorBodySize)
+	n, _ := r.Read(buf)
+	return strings.TrimSpace(string(buf[:n]))
+}
+
 // Client は ClickUp REST API v2 のクライアント。
 // リスト内タスクの取得・個別タスクの取得・ステータス更新を提供する。
 type Client struct {
@@ -100,7 +108,8 @@ func (c *Client) GetTasks(ctx context.Context) ([]Task, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body := readErrorBody(resp.Body)
+		return nil, fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 
 	var result apiTasksResponse
@@ -125,7 +134,8 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body := readErrorBody(resp.Body)
+		return nil, fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 
 	var t apiTask
@@ -157,7 +167,8 @@ func (c *Client) GetStatuses(ctx context.Context) ([]string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body := readErrorBody(resp.Body)
+		return nil, fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 
 	var result apiListResponse
@@ -183,7 +194,8 @@ func (c *Client) Ping(ctx context.Context) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body := readErrorBody(resp.Body)
+		return fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 	return nil
 }
@@ -205,7 +217,8 @@ func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status str
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		body := readErrorBody(resp.Body)
+		return fmt.Errorf("unexpected status code: %d: %s", resp.StatusCode, body)
 	}
 	return nil
 }

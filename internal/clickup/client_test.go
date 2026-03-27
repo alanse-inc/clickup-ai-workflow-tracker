@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -149,13 +150,13 @@ func TestGetTasksPagination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			callCount := 0
+			var callCount atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				page := 0
 				if p := r.URL.Query().Get("page"); p != "" {
 					_, _ = fmt.Sscanf(p, "%d", &page)
 				}
-				callCount++
+				callCount.Add(1)
 
 				if tt.wantErr && page >= len(tt.pages) {
 					w.WriteHeader(http.StatusInternalServerError)
@@ -189,8 +190,8 @@ func TestGetTasksPagination(t *testing.T) {
 				}
 			}
 
-			if callCount != tt.wantCallCount {
-				t.Errorf("expected %d API calls, got %d", tt.wantCallCount, callCount)
+			if got := int(callCount.Load()); got != tt.wantCallCount {
+				t.Errorf("expected %d API calls, got %d", tt.wantCallCount, got)
 			}
 		})
 	}

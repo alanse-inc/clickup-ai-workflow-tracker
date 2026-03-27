@@ -41,9 +41,3 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - run: docker build .

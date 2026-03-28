@@ -262,7 +262,9 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 			continue
 		}
 
-		// PR Review ステータスかつ PRChecker が有効な場合、マージ状態を確認する
+		// PR Review ステータスかつ PRChecker が有効な場合、マージ状態を確認する。
+		// このブロックは下流の IsTerminalStatus / IsProcessingStatus 判定を完全にバイパスする。
+		// prChecker == nil の場合は従来通り「処理中でも終端でもない → release」パスを通る。
 		if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
 			merged, err := o.prChecker.IsPRMerged(ctx, taskID)
 			if err != nil {

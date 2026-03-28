@@ -8,11 +8,6 @@ import (
 	"net/http"
 )
 
-// PRChecker は GitHub PR のマージ状態を確認するインターフェース
-type PRChecker interface {
-	IsPRMerged(ctx context.Context, taskID string) (bool, error)
-}
-
 type pullRequest struct {
 	MergedAt *string `json:"merged_at"`
 }

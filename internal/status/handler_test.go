@@ -95,7 +95,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewHandler(tt.limiter, tt.providers)
 
-			req := httptest.NewRequest(http.MethodGet, "/status", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 
@@ -140,7 +140,7 @@ func TestHandler_RunningAndRetryFields(t *testing.T) {
 	}}
 
 	h := NewHandler(&mockLimiter{active: 1, max: 5}, []StatusProvider{provider})
-	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

@@ -1310,3 +1310,152 @@ func TestStatus_RetryPendingEmptyAfterShutdown(t *testing.T) {
 		t.Errorf("retry_pending len = %d, want 0 after shutdown", len(s.RetryPending))
 	}
 }
+
+// TestRun_RecoveredTaskNotRedispatchedOnFirstTick verifies that a task still in processing
+// status after recovery is not dispatched on the first tick (processing ≠ trigger status).
+func TestRun_RecoveredTaskNotRedispatchedOnFirstTick(t *testing.T) {
+	sm := defaultSM
+	// Mock always returns GeneratingSpec — simulating the case where the ClickUp board
+	// still reflects the processing status during the first tick after recovery.
+	fetcher := &mockTaskClient{
+		tasks: []clickup.Task{
+			{ID: "task-1", Status: sm.GeneratingSpec},
+		},
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{
+		PollInterval:  time.Hour,
+		StatusMapping: sm,
+	}, defaultLogger, nil, "", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o.ctx = ctx
+
+	o.recoverProcessingTasks(ctx)
+	o.tick(ctx)
+
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 0 {
+		t.Errorf("expected 0 TriggerWorkflow calls for task in processing status, got %d", len(dispatcher.triggerCalls))
+	}
+}
+
+// TestShutdown_TimesOutWithoutStatusUpdate verifies that when shutdown times out while a
+// dispatch is in-flight, the error-status update has not yet been applied (dispatch abandoned).
+func TestShutdown_TimesOutWithoutStatusUpdate(t *testing.T) {
+	sm := defaultSM
+	const dispatchDelay = 200 * time.Millisecond
+	const shutdownTimeout = 10 * time.Millisecond
+
+	fetcher := &mockTaskClient{
+		taskMap:     map[string]*clickup.Task{},
+		updateDelay: dispatchDelay,
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{
+		PollInterval:    time.Hour,
+		StatusMapping:   sm,
+		ShutdownTimeout: shutdownTimeout,
+	}, defaultLogger, nil, "", nil)
+
+	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+
+	go o.dispatch(context.Background(), task, 1)
+	time.Sleep(5 * time.Millisecond) // let dispatch reach UpdateTaskStatus
+
+	start := time.Now()
+	o.shutdown()
+	elapsed := time.Since(start)
+
+	if elapsed > shutdownTimeout*5 {
+		t.Errorf("shutdown took %v, expected ~%v", elapsed, shutdownTimeout)
+	}
+
+	// After timeout, no UpdateTaskStatus call should have completed yet
+	// (the dispatch goroutine is still waiting in its updateDelay)
+	fetcher.mu.Lock()
+	calls := len(fetcher.updateCalls)
+	fetcher.mu.Unlock()
+
+	if calls != 0 {
+		t.Errorf("expected 0 update calls before dispatch delay expired, got %d", calls)
+	}
+}
+
+// TestMultiProjectSharedLimiter verifies that two orchestrators sharing a ConcurrencyLimiter
+// with maxConcurrent=2 dispatch at most 2 tasks combined, even with 4 ready tasks total.
+func TestMultiProjectSharedLimiter(t *testing.T) {
+	sm := defaultSM
+	const maxConcurrent = 2
+
+	limiter := NewConcurrencyLimiter(maxConcurrent)
+
+	// Project A: 2 ready tasks
+	fetcherA := &mockTaskClient{
+		tasks: []clickup.Task{
+			{ID: "task-a1", Status: sm.ReadyForSpec},
+			{ID: "task-a2", Status: sm.ReadyForSpec},
+		},
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcherA := &mockWorkflowDispatcher{}
+	orchA := New(fetcherA, dispatcherA, Config{
+		PollInterval:  time.Hour,
+		StatusMapping: sm,
+	}, defaultLogger, limiter, "org/repo-a", nil)
+
+	// Project B: 2 ready tasks
+	fetcherB := &mockTaskClient{
+		tasks: []clickup.Task{
+			{ID: "task-b1", Status: sm.ReadyForSpec},
+			{ID: "task-b2", Status: sm.ReadyForSpec},
+		},
+		taskMap: map[string]*clickup.Task{},
+	}
+	dispatcherB := &mockWorkflowDispatcher{}
+	orchB := New(fetcherB, dispatcherB, Config{
+		PollInterval:  time.Hour,
+		StatusMapping: sm,
+	}, defaultLogger, limiter, "org/repo-b", nil)
+
+	// Start gate: both orchestrators tick simultaneously
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		orchA.tick(context.Background())
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		orchB.tick(context.Background())
+	}()
+
+	close(start)
+	wg.Wait()
+
+	dispatcherA.mu.Lock()
+	callsA := len(dispatcherA.triggerCalls)
+	dispatcherA.mu.Unlock()
+
+	dispatcherB.mu.Lock()
+	callsB := len(dispatcherB.triggerCalls)
+	dispatcherB.mu.Unlock()
+
+	total := callsA + callsB
+	if total != maxConcurrent {
+		t.Errorf("expected %d total trigger calls with shared limiter, got %d (A=%d, B=%d)",
+			maxConcurrent, total, callsA, callsB)
+	}
+	if got := limiter.ActiveCount(); got != maxConcurrent {
+		t.Errorf("expected limiter active=%d, got %d", maxConcurrent, got)
+	}
+}

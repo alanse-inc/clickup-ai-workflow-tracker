@@ -510,6 +510,94 @@ func Test_readErrorBody(t *testing.T) {
 	}
 }
 
+func TestGetTasks_CustomFieldNonStringValue(t *testing.T) {
+	tests := []struct {
+		name            string
+		customFields    []map[string]any
+		wantKeys        []string
+		wantMissingKeys []string
+	}{
+		{
+			name: "numeric_value_skipped",
+			customFields: []map[string]any{
+				{"name": "Score", "value": 123},
+			},
+			wantMissingKeys: []string{"score"},
+		},
+		{
+			name: "bool_value_skipped",
+			customFields: []map[string]any{
+				{"name": "Active", "value": true},
+			},
+			wantMissingKeys: []string{"active"},
+		},
+		{
+			name: "null_value_skipped",
+			customFields: []map[string]any{
+				{"name": "Empty Field", "value": nil},
+			},
+			wantMissingKeys: []string{"empty_field"},
+		},
+		{
+			name: "mixed_string_and_non_string",
+			customFields: []map[string]any{
+				{"name": "GitHub PR URL", "value": "https://github.com/pr/1"},
+				{"name": "Score", "value": 42},
+				{"name": "Active", "value": false},
+			},
+			wantKeys:        []string{"github_pr_url"},
+			wantMissingKeys: []string{"score", "active"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				resp := map[string]any{
+					"tasks": []map[string]any{
+						{
+							"id":            "task1",
+							"name":          "Test Task",
+							"description":   "",
+							"status":        map[string]any{"status": "open"},
+							"custom_fields": tt.customFields,
+							"date_created":  "0",
+							"date_updated":  "0",
+						},
+					},
+					"last_page": true,
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			client := newTestClient(server, "list123")
+			tasks, err := client.GetTasks(context.Background())
+			if err != nil {
+				t.Fatalf("GetTasks() error = %v", err)
+			}
+			if len(tasks) != 1 {
+				t.Fatalf("expected 1 task, got %d", len(tasks))
+			}
+			cf := tasks[0].CustomFields
+
+			for _, key := range tt.wantKeys {
+				if _, ok := cf[key]; !ok {
+					t.Errorf("expected key %q in CustomFields, not found: %v", key, cf)
+				}
+			}
+			for _, key := range tt.wantMissingKeys {
+				if _, ok := cf[key]; ok {
+					t.Errorf("expected key %q absent from CustomFields, but found: %v", key, cf)
+				}
+			}
+		})
+	}
+}
+
 func TestClient_Ping(t *testing.T) {
 	tests := []struct {
 		name        string

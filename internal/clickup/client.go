@@ -42,6 +42,13 @@ func NewClient(apiToken, listID string) *Client {
 	}
 }
 
+// NewClientWithBaseURL は baseURL を指定してClickUp APIクライアントを生成する（テスト用）
+func NewClientWithBaseURL(apiToken, listID, baseURL string) *Client {
+	c := NewClient(apiToken, listID)
+	c.baseURL = baseURL
+	return c
+}
+
 // apiTaskStatus はClickUp APIのステータスフィールド
 type apiTaskStatus struct {
 	Status string `json:"status"`

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -347,5 +348,130 @@ func TestGitHubAppAuthenticator_TokenRefresh(t *testing.T) {
 
 	if got := callCount.Load(); got != 2 {
 		t.Errorf("API call count = %d, want 2 (token should be refreshed)", got)
+	}
+}
+
+func TestGitHubAppAuthenticator_TokenRefreshBoundary(t *testing.T) {
+	key := generateTestPrivateKey(t)
+	pemBytes := marshalPrivateKeyPEM(key)
+
+	tests := []struct {
+		name          string
+		expiresOffset time.Duration // relative to now when set after first call
+		wantCallCount int32
+	}{
+		{
+			name:          "valid_10_minutes_cached",
+			expiresOffset: 10 * time.Minute,
+			wantCallCount: 1, // within margin → cached
+		},
+		{
+			name:          "refresh_3_minutes",
+			expiresOffset: 3 * time.Minute,
+			wantCallCount: 2, // within tokenRefreshMargin (5min) → refresh
+		},
+		{
+			name:          "expired",
+			expiresOffset: -1 * time.Second,
+			wantCallCount: 2, // past expiry → refresh
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var callCount atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				callCount.Add(1)
+				resp := installationTokenResponse{ //nolint:gosec // test value
+					Token:     "ghs_boundary_token",
+					ExpiresAt: time.Now().Add(1 * time.Hour),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+
+			auth, err := NewGitHubAppAuthenticator(12345, 67890, pemBytes)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			auth.baseURL = server.URL
+
+			// First call: always fetches a fresh token
+			req1 := newTestRequest(t)
+			if err := auth.SetAuth(req1); err != nil {
+				t.Fatalf("unexpected error on first call: %v", err)
+			}
+
+			// Override expiresAt to the test boundary
+			auth.mu.Lock()
+			auth.expiresAt = time.Now().Add(tt.expiresOffset)
+			auth.mu.Unlock()
+
+			// Second call: may or may not refresh depending on boundary
+			req2 := newTestRequest(t)
+			if err := auth.SetAuth(req2); err != nil {
+				t.Fatalf("unexpected error on second call: %v", err)
+			}
+
+			if got := callCount.Load(); got != tt.wantCallCount {
+				t.Errorf("API call count = %d, want %d", got, tt.wantCallCount)
+			}
+		})
+	}
+}
+
+func TestGitHubAppAuthenticator_ConcurrentSetAuth(t *testing.T) {
+	key := generateTestPrivateKey(t)
+	pemBytes := marshalPrivateKeyPEM(key)
+
+	var callCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount.Add(1)
+		resp := installationTokenResponse{ //nolint:gosec // test value
+			Token:     "ghs_concurrent_token",
+			ExpiresAt: time.Now().Add(1 * time.Hour),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	auth, err := NewGitHubAppAuthenticator(12345, 67890, pemBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	auth.baseURL = server.URL
+
+	const goroutines = 10
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			req := newTestRequest(t)
+			errs[idx] = auth.SetAuth(req)
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d error: %v", i, err)
+		}
+	}
+
+	if got := callCount.Load(); got != 1 {
+		t.Errorf("API call count = %d, want 1 (mutex serializes concurrent callers)", got)
 	}
 }

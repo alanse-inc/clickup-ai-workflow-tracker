@@ -47,16 +47,10 @@ func main() {
 	clickupClients := make([]*clickup.Client, len(cfg.Projects))
 	for i, proj := range cfg.Projects {
 		clickupClients[i] = clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
-		if err := validateStatuses(clickupClients[i], cfg); err != nil {
+		if err := validateStatuses(clickupClients[i], proj.StatusMapping); err != nil {
 			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
 			os.Exit(1)
 		}
-	}
-
-	orchCfg := orchestrator.Config{
-		PollInterval:    time.Duration(cfg.PollIntervalMS) * time.Millisecond,
-		StatusMapping:   cfg.StatusMapping,
-		ShutdownTimeout: time.Duration(cfg.ShutdownTimeoutMS) * time.Millisecond,
 	}
 
 	// 全プロジェクトで共有するグローバル並行数リミッタ
@@ -77,6 +71,11 @@ func main() {
 	for i, proj := range cfg.Projects {
 		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
 		projectLogger := logger.With("project", projectLabel)
+		orchCfg := orchestrator.Config{
+			PollInterval:    time.Duration(cfg.PollIntervalMS) * time.Millisecond,
+			StatusMapping:   proj.StatusMapping,
+			ShutdownTimeout: time.Duration(cfg.ShutdownTimeoutMS) * time.Millisecond,
+		}
 		orchs[i] = orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter, projectLabel, prCheckers[i])
 	}
 
@@ -151,7 +150,7 @@ func main() {
 	slog.InfoContext(ctx, "service_stopped")
 }
 
-func validateStatuses(client *clickup.Client, cfg *config.Config) error {
+func validateStatuses(client *clickup.Client, sm clickup.StatusMapping) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -166,7 +165,7 @@ func validateStatuses(client *clickup.Client, cfg *config.Config) error {
 	}
 
 	var missing []string
-	for _, s := range cfg.StatusMapping.AllStatuses() {
+	for _, s := range sm.AllStatuses() {
 		if _, ok := statusSet[s]; !ok {
 			missing = append(missing, s)
 		}

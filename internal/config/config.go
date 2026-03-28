@@ -20,7 +20,6 @@ type Config struct {
 	PollIntervalMS          int // default: 10000
 	MaxConcurrentTasks      int // default: 0 (unlimited)
 	ShutdownTimeoutMS       int // default: 30000
-	StatusMapping           clickup.StatusMapping
 	Projects                []ProjectConfig
 }
 
@@ -54,27 +53,6 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.Projects = projects
-
-	sm := clickup.DefaultStatusMapping()
-	statusEnvs := map[string]*string{
-		"CLICKUP_STATUS_READY_FOR_SPEC":  &sm.ReadyForSpec,
-		"CLICKUP_STATUS_GENERATING_SPEC": &sm.GeneratingSpec,
-		"CLICKUP_STATUS_SPEC_REVIEW":     &sm.SpecReview,
-		"CLICKUP_STATUS_READY_FOR_CODE":  &sm.ReadyForCode,
-		"CLICKUP_STATUS_IMPLEMENTING":    &sm.Implementing,
-		"CLICKUP_STATUS_PR_REVIEW":       &sm.PRReview,
-		"CLICKUP_STATUS_CLOSED":          &sm.Closed,
-	}
-	for envKey, field := range statusEnvs {
-		if v := os.Getenv(envKey); v != "" {
-			*field = strings.ToLower(strings.TrimSpace(v))
-		}
-	}
-	cfg.StatusMapping = sm
-
-	if err := validateStatusMapping(sm); err != nil {
-		return nil, err
-	}
 
 	return cfg, nil
 }

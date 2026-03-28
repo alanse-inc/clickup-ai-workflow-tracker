@@ -38,10 +38,6 @@ func clearEnvs(t *testing.T) {
 	for _, key := range []string{
 		"CLICKUP_API_TOKEN",
 		"GITHUB_PAT", "POLL_INTERVAL_MS", "SHUTDOWN_TIMEOUT_MS",
-		"CLICKUP_STATUS_READY_FOR_SPEC", "CLICKUP_STATUS_GENERATING_SPEC",
-		"CLICKUP_STATUS_SPEC_REVIEW", "CLICKUP_STATUS_READY_FOR_CODE",
-		"CLICKUP_STATUS_IMPLEMENTING", "CLICKUP_STATUS_PR_REVIEW",
-		"CLICKUP_STATUS_CLOSED",
 		"GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY",
 		"PROJECTS_FILE",
 	} {
@@ -177,60 +173,16 @@ func TestLoad(t *testing.T) {
 			errContains: "POLL_INTERVAL_MS must be positive",
 		},
 		{
-			name: "default status mapping",
+			name: "default status mapping applied per project",
 			setup: func(t *testing.T) {
 				setRequiredEnvs(t)
 			},
 			check: func(t *testing.T, cfg *Config) {
 				want := clickup.DefaultStatusMapping()
-				if cfg.StatusMapping != want {
-					t.Errorf("StatusMapping = %+v, want %+v", cfg.StatusMapping, want)
+				if cfg.Projects[0].StatusMapping != want {
+					t.Errorf("StatusMapping = %+v, want %+v", cfg.Projects[0].StatusMapping, want)
 				}
 			},
-		},
-		{
-			name: "custom status mapping",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("CLICKUP_STATUS_READY_FOR_SPEC", "custom ready")
-				t.Setenv("CLICKUP_STATUS_CLOSED", "done")
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.StatusMapping.ReadyForSpec != "custom ready" {
-					t.Errorf("ReadyForSpec = %q, want %q", cfg.StatusMapping.ReadyForSpec, "custom ready")
-				}
-				if cfg.StatusMapping.Closed != "done" {
-					t.Errorf("Closed = %q, want %q", cfg.StatusMapping.Closed, "done")
-				}
-				if cfg.StatusMapping.GeneratingSpec != "generating spec" {
-					t.Errorf("GeneratingSpec = %q, want %q", cfg.StatusMapping.GeneratingSpec, "generating spec")
-				}
-			},
-		},
-		{
-			name: "status mapping normalizes case and whitespace",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("CLICKUP_STATUS_READY_FOR_SPEC", "  Ready For Spec  ")
-				t.Setenv("CLICKUP_STATUS_CLOSED", "DONE")
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.StatusMapping.ReadyForSpec != "ready for spec" {
-					t.Errorf("ReadyForSpec = %q, want %q", cfg.StatusMapping.ReadyForSpec, "ready for spec")
-				}
-				if cfg.StatusMapping.Closed != "done" {
-					t.Errorf("Closed = %q, want %q", cfg.StatusMapping.Closed, "done")
-				}
-			},
-		},
-		{
-			name: "duplicate status mapping values",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("CLICKUP_STATUS_READY_FOR_SPEC", "implementing")
-			},
-			wantErr:     true,
-			errContains: "duplicate status",
 		},
 		{
 			name: "GitHub App auth mode",
@@ -497,6 +449,10 @@ func TestLoadProjects_FromYAML(t *testing.T) {
 				if projects[0].GitHubWorkflowFile != "agent.yaml" {
 					t.Errorf("GitHubWorkflowFile = %q, want %q", projects[0].GitHubWorkflowFile, "agent.yaml")
 				}
+				want := clickup.DefaultStatusMapping()
+				if projects[0].StatusMapping != want {
+					t.Errorf("StatusMapping = %+v, want %+v", projects[0].StatusMapping, want)
+				}
 			},
 		},
 		{
@@ -518,6 +474,134 @@ func TestLoadProjects_FromYAML(t *testing.T) {
 					t.Errorf("GitHubWorkflowFile = %q, want %q", projects[1].GitHubWorkflowFile, "custom.yaml")
 				}
 			},
+		},
+		{
+			name: "project with custom status_mapping",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping:
+      ready_for_spec: "todo"
+      generating_spec: "in progress"
+      spec_review: "spec review"
+      ready_for_code: "ready for dev"
+      implementing: "developing"
+      pr_review: "code review"
+      closed: "done"
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				sm := projects[0].StatusMapping
+				if sm.ReadyForSpec != "todo" {
+					t.Errorf("ReadyForSpec = %q, want %q", sm.ReadyForSpec, "todo")
+				}
+				if sm.GeneratingSpec != "in progress" {
+					t.Errorf("GeneratingSpec = %q, want %q", sm.GeneratingSpec, "in progress")
+				}
+				if sm.SpecReview != "spec review" {
+					t.Errorf("SpecReview = %q, want %q", sm.SpecReview, "spec review")
+				}
+				if sm.ReadyForCode != "ready for dev" {
+					t.Errorf("ReadyForCode = %q, want %q", sm.ReadyForCode, "ready for dev")
+				}
+				if sm.Implementing != "developing" {
+					t.Errorf("Implementing = %q, want %q", sm.Implementing, "developing")
+				}
+				if sm.PRReview != "code review" {
+					t.Errorf("PRReview = %q, want %q", sm.PRReview, "code review")
+				}
+				if sm.Closed != "done" {
+					t.Errorf("Closed = %q, want %q", sm.Closed, "done")
+				}
+			},
+		},
+		{
+			name: "project with partial status_mapping uses defaults for omitted fields",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping:
+      ready_for_spec: "backlog"
+      closed: "done"
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				sm := projects[0].StatusMapping
+				def := clickup.DefaultStatusMapping()
+				if sm.ReadyForSpec != "backlog" {
+					t.Errorf("ReadyForSpec = %q, want %q", sm.ReadyForSpec, "backlog")
+				}
+				if sm.Closed != "done" {
+					t.Errorf("Closed = %q, want %q", sm.Closed, "done")
+				}
+				if sm.GeneratingSpec != def.GeneratingSpec {
+					t.Errorf("GeneratingSpec = %q, want default %q", sm.GeneratingSpec, def.GeneratingSpec)
+				}
+				if sm.SpecReview != def.SpecReview {
+					t.Errorf("SpecReview = %q, want default %q", sm.SpecReview, def.SpecReview)
+				}
+			},
+		},
+		{
+			name: "status_mapping normalizes case and whitespace",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping:
+      ready_for_spec: "  Ready For Spec  "
+      closed: "DONE"
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				sm := projects[0].StatusMapping
+				if sm.ReadyForSpec != "ready for spec" {
+					t.Errorf("ReadyForSpec = %q, want %q", sm.ReadyForSpec, "ready for spec")
+				}
+				if sm.Closed != "done" {
+					t.Errorf("Closed = %q, want %q", sm.Closed, "done")
+				}
+			},
+		},
+		{
+			name: "multiple projects with different status_mappings",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping:
+      ready_for_spec: "backlog"
+      closed: "done"
+  - clickup_list_id: "list-2"
+    github_owner: "org"
+    github_repo: "repo-b"
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				if len(projects) != 2 {
+					t.Fatalf("len = %d, want 2", len(projects))
+				}
+				if projects[0].StatusMapping.ReadyForSpec != "backlog" {
+					t.Errorf("project[0].ReadyForSpec = %q, want %q", projects[0].StatusMapping.ReadyForSpec, "backlog")
+				}
+				if projects[0].StatusMapping.Closed != "done" {
+					t.Errorf("project[0].Closed = %q, want %q", projects[0].StatusMapping.Closed, "done")
+				}
+				def := clickup.DefaultStatusMapping()
+				if projects[1].StatusMapping != def {
+					t.Errorf("project[1].StatusMapping = %+v, want default %+v", projects[1].StatusMapping, def)
+				}
+			},
+		},
+		{
+			name: "duplicate status values in status_mapping",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping:
+      ready_for_spec: "implementing"
+`,
+			wantErr:     true,
+			errContains: "duplicate status",
 		},
 		{
 			name:        "empty projects",

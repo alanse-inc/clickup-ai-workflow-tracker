@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/rikeda71/clickup-ai-orchestrator/internal/clickup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -11,14 +13,35 @@ const defaultWorkflowFile = "agent.yaml"
 
 // ProjectConfig は1つの ClickUp リスト - GitHub リポジトリペアの設定
 type ProjectConfig struct {
-	ClickUpListID      string `yaml:"clickup_list_id"`
-	GitHubOwner        string `yaml:"github_owner"`
-	GitHubRepo         string `yaml:"github_repo"`
-	GitHubWorkflowFile string `yaml:"github_workflow_file"`
+	ClickUpListID      string
+	GitHubOwner        string
+	GitHubRepo         string
+	GitHubWorkflowFile string
+	StatusMapping      clickup.StatusMapping
+}
+
+// rawStatusMappingConfig は YAML パース用の内部構造体
+type rawStatusMappingConfig struct {
+	ReadyForSpec   string `yaml:"ready_for_spec"`
+	GeneratingSpec string `yaml:"generating_spec"`
+	SpecReview     string `yaml:"spec_review"`
+	ReadyForCode   string `yaml:"ready_for_code"`
+	Implementing   string `yaml:"implementing"`
+	PRReview       string `yaml:"pr_review"`
+	Closed         string `yaml:"closed"`
+}
+
+// rawProjectConfig は YAML パース用の内部構造体
+type rawProjectConfig struct {
+	ClickUpListID      string                  `yaml:"clickup_list_id"`
+	GitHubOwner        string                  `yaml:"github_owner"`
+	GitHubRepo         string                  `yaml:"github_repo"`
+	GitHubWorkflowFile string                  `yaml:"github_workflow_file"`
+	StatusMapping      *rawStatusMappingConfig `yaml:"status_mapping"`
 }
 
 type projectsFile struct {
-	Projects []ProjectConfig `yaml:"projects"`
+	Projects []rawProjectConfig `yaml:"projects"`
 }
 
 func loadProjects(path string) ([]ProjectConfig, error) {
@@ -36,6 +59,7 @@ func loadProjects(path string) ([]ProjectConfig, error) {
 		return nil, fmt.Errorf("projects file must contain at least one project")
 	}
 
+	projects := make([]ProjectConfig, len(pf.Projects))
 	for i, p := range pf.Projects {
 		var missing []string
 		if p.ClickUpListID == "" {
@@ -50,10 +74,61 @@ func loadProjects(path string) ([]ProjectConfig, error) {
 		if len(missing) > 0 {
 			return nil, fmt.Errorf("project[%d]: missing required fields: %v", i, missing)
 		}
-		if p.GitHubWorkflowFile == "" {
-			pf.Projects[i].GitHubWorkflowFile = defaultWorkflowFile
+
+		workflowFile := p.GitHubWorkflowFile
+		if workflowFile == "" {
+			workflowFile = defaultWorkflowFile
+		}
+
+		sm, err := resolveStatusMapping(p.StatusMapping)
+		if err != nil {
+			return nil, fmt.Errorf("project[%d] (%s/%s): invalid status_mapping: %w", i, p.GitHubOwner, p.GitHubRepo, err)
+		}
+
+		projects[i] = ProjectConfig{
+			ClickUpListID:      p.ClickUpListID,
+			GitHubOwner:        p.GitHubOwner,
+			GitHubRepo:         p.GitHubRepo,
+			GitHubWorkflowFile: workflowFile,
+			StatusMapping:      sm,
 		}
 	}
 
-	return pf.Projects, nil
+	return projects, nil
+}
+
+// resolveStatusMapping は rawStatusMappingConfig からデフォルト値を補完した StatusMapping を返す
+func resolveStatusMapping(raw *rawStatusMappingConfig) (clickup.StatusMapping, error) {
+	sm := clickup.DefaultStatusMapping()
+	if raw == nil {
+		return sm, nil
+	}
+
+	if raw.ReadyForSpec != "" {
+		sm.ReadyForSpec = strings.ToLower(strings.TrimSpace(raw.ReadyForSpec))
+	}
+	if raw.GeneratingSpec != "" {
+		sm.GeneratingSpec = strings.ToLower(strings.TrimSpace(raw.GeneratingSpec))
+	}
+	if raw.SpecReview != "" {
+		sm.SpecReview = strings.ToLower(strings.TrimSpace(raw.SpecReview))
+	}
+	if raw.ReadyForCode != "" {
+		sm.ReadyForCode = strings.ToLower(strings.TrimSpace(raw.ReadyForCode))
+	}
+	if raw.Implementing != "" {
+		sm.Implementing = strings.ToLower(strings.TrimSpace(raw.Implementing))
+	}
+	if raw.PRReview != "" {
+		sm.PRReview = strings.ToLower(strings.TrimSpace(raw.PRReview))
+	}
+	if raw.Closed != "" {
+		sm.Closed = strings.ToLower(strings.TrimSpace(raw.Closed))
+	}
+
+	if err := validateStatusMapping(sm); err != nil {
+		return clickup.StatusMapping{}, err
+	}
+
+	return sm, nil
 }

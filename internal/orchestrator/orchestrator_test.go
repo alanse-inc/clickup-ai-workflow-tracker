@@ -589,6 +589,230 @@ func TestTick_NilLimiterIsUnlimited(t *testing.T) {
 	}
 }
 
+func TestReconcile_LimiterRelease(t *testing.T) {
+	sm := defaultSM
+	tests := []struct {
+		name            string
+		taskStatus      string
+		wantStateKept   bool
+		wantLimiterKept bool
+	}{
+		{
+			name:            "terminal status releases limiter",
+			taskStatus:      sm.Closed,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "non-processing status releases limiter",
+			taskStatus:      sm.SpecReview,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "trigger status releases limiter",
+			taskStatus:      sm.ReadyForSpec,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "processing status keeps limiter",
+			taskStatus:      sm.GeneratingSpec,
+			wantStateKept:   true,
+			wantLimiterKept: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &mockTaskClient{
+				taskMap: map[string]*clickup.Task{
+					"task-1": {ID: "task-1", Status: tt.taskStatus},
+				},
+			}
+			dispatcher := &mockWorkflowDispatcher{}
+			limiter := NewConcurrencyLimiter(3)
+			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+			o.state.Claim("task-1")
+			_ = limiter.TryAcquire()
+			o.state.MarkRunning("task-1")
+
+			o.reconcile(context.Background())
+
+			if o.state.IsClaimedOrRunning("task-1") != tt.wantStateKept {
+				t.Errorf("state kept = %v, want %v", o.state.IsClaimedOrRunning("task-1"), tt.wantStateKept)
+			}
+			if (limiter.ActiveCount() == 1) != tt.wantLimiterKept {
+				t.Errorf("limiter active = %d, wantLimiterKept = %v", limiter.ActiveCount(), tt.wantLimiterKept)
+			}
+		})
+	}
+}
+
+func TestReconcile_APIError_KeepsLimiter(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		getTaskErr: fmt.Errorf("api error"),
+		taskMap:    map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(3)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	o.reconcile(context.Background())
+
+	if !o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to remain running on API error")
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestReconcile_MultipleRunning_PartialRelease(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+			"task-2": {ID: "task-2", Status: sm.GeneratingSpec},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(3)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	o.state.Claim("task-2")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-2")
+
+	o.reconcile(context.Background())
+
+	if o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be released (terminal status)")
+	}
+	if !o.state.IsClaimedOrRunning("task-2") {
+		t.Fatal("expected task-2 to remain running (processing status)")
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestDispatchReconcileRedispatch_LimiterCycle(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(1)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	// Step 1: dispatch task-1
+	task1 := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+	o.dispatch(context.Background(), task1, 1)
+
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after dispatch, got %d", limiter.ActiveCount())
+	}
+	if !o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be running after dispatch")
+	}
+
+	// Step 2: task-1 reaches terminal status → reconcile releases slot
+	o.reconcile(context.Background())
+
+	if limiter.ActiveCount() != 0 {
+		t.Fatalf("expected limiter active=0 after reconcile, got %d", limiter.ActiveCount())
+	}
+	if o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be released after reconcile")
+	}
+
+	// Step 3: re-dispatch task-1 (back to trigger status)
+	fetcher.mu.Lock()
+	fetcher.taskMap["task-1"] = &clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+	fetcher.mu.Unlock()
+
+	o.dispatch(context.Background(), task1, 1)
+
+	dispatcher.mu.Lock()
+	calls := len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 2 {
+		t.Fatalf("expected TriggerWorkflow called 2 times total, got %d", calls)
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after re-dispatch, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestDispatchReconcileRedispatch_MaxConcurrencyRespected(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(1)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	// Setup: task-1 is already running (consuming the only slot)
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	// Step 1: try to dispatch task-2 → limiter is full, should fail
+	task2 := clickup.Task{ID: "task-2", Status: sm.ReadyForSpec}
+	result := o.dispatch(context.Background(), task2, 1)
+
+	if result {
+		// dispatch returns false when limiter is full (caller should stop)
+		t.Fatal("expected dispatch to return false when limiter is full")
+	}
+
+	dispatcher.mu.Lock()
+	calls := len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 0 {
+		t.Fatalf("expected 0 trigger calls when limiter full, got %d", calls)
+	}
+
+	// Step 2: task-1 reaches terminal status → reconcile releases slot
+	o.reconcile(context.Background())
+
+	if limiter.ActiveCount() != 0 {
+		t.Fatalf("expected limiter active=0 after reconcile, got %d", limiter.ActiveCount())
+	}
+
+	// Step 3: now task-2 can be dispatched
+	o.dispatch(context.Background(), task2, 1)
+
+	dispatcher.mu.Lock()
+	calls = len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 1 {
+		t.Fatalf("expected 1 trigger call after slot freed, got %d", calls)
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after task-2 dispatch, got %d", limiter.ActiveCount())
+	}
+}
+
 func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
 	sm := defaultSM
 	fetcher := &mockTaskClient{

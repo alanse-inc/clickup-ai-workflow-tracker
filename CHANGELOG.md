@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.3.0...v1.4.0) (2026-03-28)
+
+
+### Features
+
+* manage ClickUp statuses per project via YAML config ([#85](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/85)) ([301516b](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/301516bc3d1e8e8ca630e73cc12d11a7a69cf71a))
+
 ## [1.3.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.2.0...v1.3.0) (2026-03-28)
 
 

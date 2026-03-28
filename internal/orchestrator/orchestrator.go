@@ -22,6 +22,11 @@ type WorkflowDispatcher interface {
 	TriggerWorkflow(ctx context.Context, taskID string, phase string, statusOnSuccess string, statusOnError string) error
 }
 
+// PRChecker は GitHub PR のマージ状態を確認するインターフェース
+type PRChecker interface {
+	IsPRMerged(ctx context.Context, taskID string) (bool, error)
+}
+
 // Config は Orchestrator の設定を保持する
 type Config struct {
 	PollInterval    time.Duration
@@ -33,6 +38,7 @@ type Config struct {
 type Orchestrator struct {
 	taskClient      TaskClient
 	dispatcher      WorkflowDispatcher
+	prChecker       PRChecker // nil の場合は PR マージ自動検知を無効化
 	state           *AgentState
 	limiter         *ConcurrencyLimiter
 	pollInterval    time.Duration
@@ -80,7 +86,8 @@ type RetryInfo struct {
 // limiter が nil の場合は並行数制限なし。
 // 複数 Orchestrator 間で ConcurrencyLimiter を共有することで、グローバルな並行タスク数制限を実現できる。
 // projectLabel は "owner/repo" 形式のプロジェクト識別子で、Status() のレスポンスに含まれる。
-func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger, limiter *ConcurrencyLimiter, projectLabel string) *Orchestrator {
+// prChecker が nil の場合は PR マージ自動検知を無効化し、後方互換動作を維持する。
+func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger, limiter *ConcurrencyLimiter, projectLabel string, prChecker PRChecker) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -91,6 +98,7 @@ func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logge
 	return &Orchestrator{
 		taskClient:      taskClient,
 		dispatcher:      dispatcher,
+		prChecker:       prChecker,
 		state:           NewAgentState(),
 		limiter:         limiter,
 		pollInterval:    cfg.PollInterval,
@@ -251,6 +259,30 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 		task, err := o.taskClient.GetTask(ctx, taskID)
 		if err != nil {
 			o.logger.Warn("failed to get task for reconciliation, skipping", "task_id", taskID, "error", err)
+			continue
+		}
+
+		// PR Review ステータスかつ PRChecker が有効な場合、マージ状態を確認する。
+		// このブロックは下流の IsTerminalStatus / IsProcessingStatus 判定を完全にバイパスする。
+		// prChecker == nil の場合は従来通り「処理中でも終端でもない → release」パスを通る。
+		if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
+			merged, err := o.prChecker.IsPRMerged(ctx, taskID)
+			if err != nil {
+				o.logger.Warn("failed to check PR merge status, skipping",
+					"task_id", taskID, "error", err)
+				continue
+			}
+			if merged {
+				if err := o.taskClient.UpdateTaskStatus(ctx, taskID, o.statusMapping.Closed); err != nil {
+					o.logger.Error("failed to update task to closed",
+						"task_id", taskID, "error", err)
+					continue
+				}
+				o.logger.Info("pr merged, task closed", "task_id", taskID)
+				o.release(taskID)
+				continue
+			}
+			// 未マージ: 処理中として維持
 			continue
 		}
 

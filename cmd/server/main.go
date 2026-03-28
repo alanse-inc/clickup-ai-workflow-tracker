@@ -67,12 +67,17 @@ func main() {
 		dispatchers[i] = gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
 	}
 
+	prCheckers := make([]*gh.GitHubPRChecker, len(cfg.Projects))
+	for i, proj := range cfg.Projects {
+		prCheckers[i] = gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
+	}
+
 	// オーケストレータをあらかじめ生成し、/status ハンドラに渡す
 	orchs := make([]*orchestrator.Orchestrator, len(cfg.Projects))
 	for i, proj := range cfg.Projects {
 		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
 		projectLogger := logger.With("project", projectLabel)
-		orchs[i] = orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter, projectLabel)
+		orchs[i] = orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter, projectLabel, prCheckers[i])
 	}
 
 	port := os.Getenv("PORT")

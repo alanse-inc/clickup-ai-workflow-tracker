@@ -46,18 +46,16 @@ flowchart TD
     FOR_RUNNING -- Yes --> GET_TASK[ClickUp API: タスク取得]
     GET_TASK --> GET_ERR{取得エラー?}
     GET_ERR -- Yes --> SKIP[スキップ\n次のタスクへ]
-    GET_ERR -- No --> IS_PR_REVIEW{PR Review ステータス?\nかつ PRChecker 有効}
-    IS_PR_REVIEW -- Yes --> CHECK_MERGE[GitHub API: PR マージ状態確認]
-    CHECK_MERGE --> IS_MERGED{マージ済み?}
-    IS_MERGED -- Yes --> AUTO_CLOSE[ClickUp API: closed に更新] --> RELEASE_MERGE[state.Release\nクレーム解除]
-    IS_MERGED -- No --> CONTINUE_PR[処理中として維持\n次のタスクへ]
+    GET_ERR -- No --> IS_PR_REVIEW{PR Review?\nPRChecker 有効?}
+    IS_PR_REVIEW -- "Yes & マージ済み" --> AUTO_CLOSE[closed に自動遷移\nstate.Release]
+    IS_PR_REVIEW -- "Yes & 未マージ" --> CONTINUE_PR[維持\n次のタスクへ]
     IS_PR_REVIEW -- No --> IS_TERMINAL{終端ステータス?\nclosed}
     IS_TERMINAL -- Yes --> RELEASE_TERMINAL[state.Release\nクレーム解除]
     IS_TERMINAL -- No --> IS_PROCESSING{処理中ステータス?\ngenerating spec / implementing}
     IS_PROCESSING -- Yes --> CONTINUE[何もしない\n次のタスクへ]
     IS_PROCESSING -- No --> RELEASE_RECONCILE[state.Release\n不整合のため解除]
 
-    RELEASE_MERGE --> FOR_RUNNING
+    AUTO_CLOSE --> FOR_RUNNING
     CONTINUE_PR --> FOR_RUNNING
     RELEASE_TERMINAL --> FOR_RUNNING
     SKIP --> FOR_RUNNING

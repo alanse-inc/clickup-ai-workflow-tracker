@@ -149,7 +149,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewHandler(tt.limiter, tt.providers)
 
-			req := httptest.NewRequest(http.MethodGet, "/status", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 

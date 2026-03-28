@@ -592,6 +592,36 @@ func TestLoadProjects_FromYAML(t *testing.T) {
 			},
 		},
 		{
+			name: "explicit empty status_mapping uses defaults",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping: {}
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				want := clickup.DefaultStatusMapping()
+				if projects[0].StatusMapping != want {
+					t.Errorf("StatusMapping = %+v, want default %+v", projects[0].StatusMapping, want)
+				}
+			},
+		},
+		{
+			name: "null status_mapping uses defaults",
+			yaml: `projects:
+  - clickup_list_id: "list-1"
+    github_owner: "org"
+    github_repo: "repo-a"
+    status_mapping: ~
+`,
+			check: func(t *testing.T, projects []ProjectConfig) {
+				want := clickup.DefaultStatusMapping()
+				if projects[0].StatusMapping != want {
+					t.Errorf("StatusMapping = %+v, want default %+v", projects[0].StatusMapping, want)
+				}
+			},
+		},
+		{
 			name: "duplicate status values in status_mapping",
 			yaml: `projects:
   - clickup_list_id: "list-1"

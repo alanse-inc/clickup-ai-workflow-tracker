@@ -74,7 +74,7 @@ func loadProjects(path string) ([]ProjectConfig, error) {
 			missing = append(missing, "github_repo")
 		}
 		if len(missing) > 0 {
-			return nil, fmt.Errorf("project[%d]: missing required fields: %v", i, missing)
+			return nil, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
 		}
 
 		workflowFile := p.GitHubWorkflowFile
@@ -102,30 +102,29 @@ func loadProjects(path string) ([]ProjectConfig, error) {
 // resolveStatusMapping は rawStatusMappingConfig からデフォルト値を補完した StatusMapping を返す
 func resolveStatusMapping(raw *rawStatusMappingConfig) (clickup.StatusMapping, error) {
 	sm := clickup.DefaultStatusMapping()
-	if raw == nil {
-		return sm, nil
-	}
 
-	if raw.ReadyForSpec != "" {
-		sm.ReadyForSpec = strings.ToLower(strings.TrimSpace(raw.ReadyForSpec))
-	}
-	if raw.GeneratingSpec != "" {
-		sm.GeneratingSpec = strings.ToLower(strings.TrimSpace(raw.GeneratingSpec))
-	}
-	if raw.SpecReview != "" {
-		sm.SpecReview = strings.ToLower(strings.TrimSpace(raw.SpecReview))
-	}
-	if raw.ReadyForCode != "" {
-		sm.ReadyForCode = strings.ToLower(strings.TrimSpace(raw.ReadyForCode))
-	}
-	if raw.Implementing != "" {
-		sm.Implementing = strings.ToLower(strings.TrimSpace(raw.Implementing))
-	}
-	if raw.PRReview != "" {
-		sm.PRReview = strings.ToLower(strings.TrimSpace(raw.PRReview))
-	}
-	if raw.Closed != "" {
-		sm.Closed = strings.ToLower(strings.TrimSpace(raw.Closed))
+	if raw != nil {
+		if raw.ReadyForSpec != "" {
+			sm.ReadyForSpec = strings.ToLower(strings.TrimSpace(raw.ReadyForSpec))
+		}
+		if raw.GeneratingSpec != "" {
+			sm.GeneratingSpec = strings.ToLower(strings.TrimSpace(raw.GeneratingSpec))
+		}
+		if raw.SpecReview != "" {
+			sm.SpecReview = strings.ToLower(strings.TrimSpace(raw.SpecReview))
+		}
+		if raw.ReadyForCode != "" {
+			sm.ReadyForCode = strings.ToLower(strings.TrimSpace(raw.ReadyForCode))
+		}
+		if raw.Implementing != "" {
+			sm.Implementing = strings.ToLower(strings.TrimSpace(raw.Implementing))
+		}
+		if raw.PRReview != "" {
+			sm.PRReview = strings.ToLower(strings.TrimSpace(raw.PRReview))
+		}
+		if raw.Closed != "" {
+			sm.Closed = strings.ToLower(strings.TrimSpace(raw.Closed))
+		}
 	}
 
 	if err := validateStatusMapping(sm); err != nil {
@@ -135,7 +134,8 @@ func resolveStatusMapping(raw *rawStatusMappingConfig) (clickup.StatusMapping, e
 	return sm, nil
 }
 
-// validateStatusMapping はステータスマッピングの空文字チェックと重複チェックを行う
+// validateStatusMapping はステータスマッピングの空文字チェックと重複チェックを行う。
+// fields スライスは AllStatuses() および rawStatusMappingConfig と同期を保つこと。
 func validateStatusMapping(sm clickup.StatusMapping) error {
 	type field struct {
 		name  string

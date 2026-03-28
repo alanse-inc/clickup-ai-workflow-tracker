@@ -11,11 +11,23 @@ import (
 )
 
 func TestValidateStatuses(t *testing.T) {
-	sm := clickup.DefaultStatusMapping()
-	allStatuses := sm.AllStatuses()
+	defaultSM := clickup.DefaultStatusMapping()
+	allDefaultStatuses := defaultSM.AllStatuses()
+
+	customSM := clickup.StatusMapping{
+		ReadyForSpec:   "backlog",
+		GeneratingSpec: "in progress",
+		SpecReview:     "review",
+		ReadyForCode:   "ready",
+		Implementing:   "coding",
+		PRReview:       "pr pending",
+		Closed:         "done",
+	}
+	allCustomStatuses := customSM.AllStatuses()
 
 	tests := []struct {
 		name        string
+		sm          clickup.StatusMapping
 		statuses    []string
 		apiErr      bool
 		wantErr     bool
@@ -23,24 +35,41 @@ func TestValidateStatuses(t *testing.T) {
 	}{
 		{
 			name:     "all_statuses_exist",
-			statuses: allStatuses,
+			sm:       defaultSM,
+			statuses: allDefaultStatuses,
 			wantErr:  false,
 		},
 		{
 			name:        "some_statuses_missing",
-			statuses:    allStatuses[:4],
+			sm:          defaultSM,
+			statuses:    allDefaultStatuses[:4],
 			wantErr:     true,
 			errContains: "statuses not found on ClickUp board",
 		},
 		{
 			name:        "api_error",
+			sm:          defaultSM,
 			apiErr:      true,
 			wantErr:     true,
 			errContains: "fetching ClickUp statuses",
 		},
 		{
 			name:        "empty_status_list",
+			sm:          defaultSM,
 			statuses:    []string{},
+			wantErr:     true,
+			errContains: "statuses not found on ClickUp board",
+		},
+		{
+			name:     "custom_mapping_all_exist",
+			sm:       customSM,
+			statuses: allCustomStatuses,
+			wantErr:  false,
+		},
+		{
+			name:        "custom_mapping_some_missing",
+			sm:          customSM,
+			statuses:    allCustomStatuses[:3],
 			wantErr:     true,
 			errContains: "statuses not found on ClickUp board",
 		},
@@ -67,7 +96,7 @@ func TestValidateStatuses(t *testing.T) {
 
 			client := clickup.NewClientWithBaseURL("test-token", "list123", server.URL+"/api/v2")
 
-			err := validateStatuses(client, sm)
+			err := validateStatuses(client, tt.sm)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

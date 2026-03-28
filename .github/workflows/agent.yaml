@@ -36,6 +36,15 @@ jobs:
       #
       # Org レベルの Secret に設定すると全リポジトリで CI 自動トリガーが有効になる。
       # Secret 名は自組織に合わせて変更すること（例: CI_APP_ID / CI_APP_PRIVATE_KEY）。
+      - name: Validate phase input
+        env:
+          PHASE: ${{ inputs.phase }}
+        run: |
+          if [[ "$PHASE" != "SPEC" && "$PHASE" != "CODE" ]]; then
+            echo "Invalid phase: '$PHASE'. Must be 'SPEC' or 'CODE'."
+            exit 1
+          fi
+
       - name: Generate GitHub App token
         id: app_token
         continue-on-error: true
@@ -43,13 +52,6 @@ jobs:
         with:
           app-id: ${{ secrets.CI_APP_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-
-      - name: Validate phase input
-        run: |
-          if [[ "${{ inputs.phase }}" != "SPEC" && "${{ inputs.phase }}" != "CODE" ]]; then
-            echo "Invalid phase: '${{ inputs.phase }}'. Must be 'SPEC' or 'CODE'."
-            exit 1
-          fi
 
       - uses: actions/checkout@v6
 

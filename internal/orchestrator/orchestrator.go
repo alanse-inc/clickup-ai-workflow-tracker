@@ -83,6 +83,9 @@ func (o *Orchestrator) Run(ctx context.Context) {
 
 	o.ctx = ctx
 
+	// 再起動時の processing タスク復旧（tick より前に実行）
+	o.recoverProcessingTasks(ctx)
+
 	// SPEC 8.1: 起動時に即時ティックを実行
 	o.tick(ctx)
 
@@ -122,6 +125,40 @@ func (o *Orchestrator) shutdown() {
 		o.logger.Info("graceful shutdown completed")
 	case <-time.After(o.shutdownTimeout):
 		o.logger.Warn("graceful shutdown timed out, forcing stop", "timeout", o.shutdownTimeout)
+	}
+}
+
+// recoverProcessingTasks は起動時に processing ステータスのタスクをトリガーステータスに巻き戻す。
+// 再起動前に generating spec / implementing に変更されたタスクが stuck するのを防ぐ。
+func (o *Orchestrator) recoverProcessingTasks(ctx context.Context) {
+	tasks, err := o.taskClient.GetTasks(ctx)
+	if err != nil {
+		o.logger.Error("failed to fetch tasks for recovery", "error", err)
+		return
+	}
+
+	for _, task := range tasks {
+		if !o.statusMapping.IsProcessingStatus(task.Status) {
+			continue
+		}
+
+		phase, err := o.statusMapping.PhaseFromStatus(task.Status)
+		if err != nil {
+			o.logger.Error("failed to determine phase for recovery",
+				"task_id", task.ID, "status", task.Status, "error", err)
+			continue
+		}
+
+		triggerStatus := o.statusMapping.ErrorStatusFor(phase)
+		if err := o.taskClient.UpdateTaskStatus(ctx, task.ID, triggerStatus); err != nil {
+			o.logger.Error("failed to revert task status for recovery",
+				"task_id", task.ID, "from_status", task.Status,
+				"to_status", triggerStatus, "error", err)
+			continue
+		}
+
+		o.logger.Info("recovered processing task",
+			"task_id", task.ID, "from_status", task.Status, "to_status", triggerStatus)
 	}
 }
 

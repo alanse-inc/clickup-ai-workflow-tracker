@@ -165,14 +165,21 @@ jobs:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           TASK_ID: ${{ inputs.task_id }}
           ORIGINAL: ${{ steps.fetch_task.outputs.task_text_content }}
+          SPEC: ${{ steps.claude_spec.outputs.result }}
         run: |
-          SPEC=$(jq -r '[.. | objects | select(.type == "result") | .result // empty] | last // ""' \
-            /home/runner/work/_temp/claude-execution-output.json)
           if [ -z "$SPEC" ]; then
-            echo "No spec output found, skipping description update"
+            echo "::warning::claude_spec output is empty. Skipping description update."
             exit 0
           fi
-          CLEAN_ORIGINAL=$(printf '%s' "$ORIGINAL" | awk '/^---$/{found_sep=1; buf=$0; next} found_sep && /^$/{buf=buf ORS; next} found_sep && /^## AI Generated Spec/{exit} found_sep{print buf; print; buf=""; found_sep=0; next} {print} END{if(buf) printf "%s", buf}' | awk '{lines[NR]=$0} END{e=NR; while(e>0 && lines[e]=="") e--; for(i=1;i<=e;i++) print lines[i]}')
+          CLEAN_ORIGINAL=$(printf '%s' "$ORIGINAL" | python3 -c "
+          import sys
+          text = sys.stdin.read()
+          marker = '\n\n---\n\n## AI Generated Spec'
+          idx = text.find(marker)
+          if idx != -1:
+              text = text[:idx]
+          print(text.rstrip())
+          ")
           COMBINED=$(printf '%s\n\n---\n\n## AI Generated Spec\n\n%s' "$CLEAN_ORIGINAL" "$SPEC")
           jq -n --arg md "$COMBINED" '{markdown_description: $md}' | \
           curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \

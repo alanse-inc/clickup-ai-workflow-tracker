@@ -27,7 +27,7 @@ type mockTaskClient struct {
 	updateCalls   []updateCall
 	getTasksCalls int
 	getTaskCalls  []string
-	updateDelay   time.Duration // 0 の場合は即時返す
+	updateDelay   time.Duration
 }
 
 type updateCall struct {
@@ -597,6 +597,442 @@ func TestTick_NilLimiterIsUnlimited(t *testing.T) {
 	}
 }
 
+func TestReconcile_LimiterRelease(t *testing.T) {
+	sm := defaultSM
+	tests := []struct {
+		name            string
+		taskStatus      string
+		wantStateKept   bool
+		wantLimiterKept bool
+	}{
+		{
+			name:            "terminal status releases limiter",
+			taskStatus:      sm.Closed,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "non-processing status releases limiter",
+			taskStatus:      sm.SpecReview,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "trigger status releases limiter",
+			taskStatus:      sm.ReadyForSpec,
+			wantStateKept:   false,
+			wantLimiterKept: false,
+		},
+		{
+			name:            "processing status keeps limiter",
+			taskStatus:      sm.GeneratingSpec,
+			wantStateKept:   true,
+			wantLimiterKept: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &mockTaskClient{
+				taskMap: map[string]*clickup.Task{
+					"task-1": {ID: "task-1", Status: tt.taskStatus},
+				},
+			}
+			dispatcher := &mockWorkflowDispatcher{}
+			limiter := NewConcurrencyLimiter(3)
+			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+			o.state.Claim("task-1")
+			_ = limiter.TryAcquire()
+			o.state.MarkRunning("task-1")
+
+			o.reconcile(context.Background())
+
+			if o.state.IsClaimedOrRunning("task-1") != tt.wantStateKept {
+				t.Errorf("state kept = %v, want %v", o.state.IsClaimedOrRunning("task-1"), tt.wantStateKept)
+			}
+			if (limiter.ActiveCount() == 1) != tt.wantLimiterKept {
+				t.Errorf("limiter active = %d, wantLimiterKept = %v", limiter.ActiveCount(), tt.wantLimiterKept)
+			}
+		})
+	}
+}
+
+func TestReconcile_APIError_KeepsLimiter(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		getTaskErr: fmt.Errorf("api error"),
+		taskMap:    map[string]*clickup.Task{},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(3)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	o.reconcile(context.Background())
+
+	if !o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to remain running on API error")
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestReconcile_MultipleRunning_PartialRelease(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+			"task-2": {ID: "task-2", Status: sm.GeneratingSpec},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(3)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	o.state.Claim("task-2")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-2")
+
+	o.reconcile(context.Background())
+
+	if o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be released (terminal status)")
+	}
+	if !o.state.IsClaimedOrRunning("task-2") {
+		t.Fatal("expected task-2 to remain running (processing status)")
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestDispatchReconcileRedispatch_LimiterCycle(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(1)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	// Step 1: dispatch task-1
+	task1 := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+	o.dispatch(context.Background(), task1, 1)
+
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after dispatch, got %d", limiter.ActiveCount())
+	}
+	if !o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be running after dispatch")
+	}
+
+	// Step 2: task-1 reaches terminal status → reconcile releases slot
+	o.reconcile(context.Background())
+
+	if limiter.ActiveCount() != 0 {
+		t.Fatalf("expected limiter active=0 after reconcile, got %d", limiter.ActiveCount())
+	}
+	if o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to be released after reconcile")
+	}
+
+	// Step 3: re-dispatch task-1 (back to trigger status)
+	fetcher.mu.Lock()
+	fetcher.taskMap["task-1"] = &clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
+	fetcher.mu.Unlock()
+
+	o.dispatch(context.Background(), task1, 1)
+
+	dispatcher.mu.Lock()
+	calls := len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 2 {
+		t.Fatalf("expected TriggerWorkflow called 2 times total, got %d", calls)
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after re-dispatch, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestDispatchReconcileRedispatch_MaxConcurrencyRespected(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.Closed},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	limiter := NewConcurrencyLimiter(1)
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, limiter)
+
+	// Setup: task-1 is already running (consuming the only slot)
+	o.state.Claim("task-1")
+	_ = limiter.TryAcquire()
+	o.state.MarkRunning("task-1")
+
+	// Step 1: try to dispatch task-2 → limiter is full, should fail
+	task2 := clickup.Task{ID: "task-2", Status: sm.ReadyForSpec}
+	result := o.dispatch(context.Background(), task2, 1)
+
+	if result {
+		// dispatch returns false when limiter is full (caller should stop)
+		t.Fatal("expected dispatch to return false when limiter is full")
+	}
+
+	dispatcher.mu.Lock()
+	calls := len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 0 {
+		t.Fatalf("expected 0 trigger calls when limiter full, got %d", calls)
+	}
+
+	// Step 2: task-1 reaches terminal status → reconcile releases slot
+	o.reconcile(context.Background())
+
+	if limiter.ActiveCount() != 0 {
+		t.Fatalf("expected limiter active=0 after reconcile, got %d", limiter.ActiveCount())
+	}
+
+	// Step 3: now task-2 can be dispatched
+	o.dispatch(context.Background(), task2, 1)
+
+	dispatcher.mu.Lock()
+	calls = len(dispatcher.triggerCalls)
+	dispatcher.mu.Unlock()
+
+	if calls != 1 {
+		t.Fatalf("expected 1 trigger call after slot freed, got %d", calls)
+	}
+	if limiter.ActiveCount() != 1 {
+		t.Fatalf("expected limiter active=1 after task-2 dispatch, got %d", limiter.ActiveCount())
+	}
+}
+
+func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
+	sm := defaultSM
+	fetcher := &mockTaskClient{
+		taskMap: map[string]*clickup.Task{
+			"task-1": {ID: "task-1", Status: sm.ReadyForSpec},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+	o.ctx = context.Background()
+	defer o.shutdown()
+
+	// attempt=1 で短い遅延のリトライをスケジュール
+	o.scheduleRetry("task-1", "SPEC", 1, fmt.Errorf("error1"))
+
+	// すぐに attempt=2 で上書き → attempt=1 のタイマーはキャンセルされるはず
+	o.scheduleRetry("task-1", "SPEC", 2, fmt.Errorf("error2"))
+
+	// エントリが attempt=2 に更新されていることを確認
+	o.retryMu.Lock()
+	entry, ok := o.retryTimers["task-1"]
+	if !ok {
+		o.retryMu.Unlock()
+		t.Fatal("expected retry timer to exist")
+	}
+	if entry.attempt != 2 {
+		o.retryMu.Unlock()
+		t.Fatalf("expected attempt 2 (latest), got %d", entry.attempt)
+	}
+	o.retryMu.Unlock()
+
+	// handleRetry は attempt 不一致時に何もしないことを検証
+	o.retryMu.Lock()
+	o.retryTimers["task-1"] = &retryEntry{
+		taskID:  "task-1",
+		phase:   "SPEC",
+		attempt: 2,
+		timer:   time.NewTimer(time.Hour), // shutdown 用ダミー
+	}
+	o.retryMu.Unlock()
+
+	// 旧 attempt=1 のコールバックが走った場合: attempt 不一致で早期リターンするはず
+	o.handleRetry("task-1", "SPEC", 1)
+
+	// dispatch が呼ばれていないことを確認（attempt 不一致でガードされた）
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 0 {
+		t.Errorf("expected 0 trigger calls (old attempt should be ignored), got %d", len(dispatcher.triggerCalls))
+	}
+}
+
+func TestRecoverProcessingTasks(t *testing.T) {
+	sm := defaultSM
+	tests := []struct {
+		name            string
+		tasks           []clickup.Task
+		getTasksErr     error
+		updateErr       error
+		wantUpdateCalls []updateCall
+	}{
+		{
+			name:  "generating spec タスクを ready for spec に巻き戻す",
+			tasks: []clickup.Task{{ID: "task-1", Status: sm.GeneratingSpec}},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+			},
+		},
+		{
+			name:  "implementing タスクを ready for code に巻き戻す",
+			tasks: []clickup.Task{{ID: "task-1", Status: sm.Implementing}},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name: "複数の processing タスクをまとめて復旧する",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.GeneratingSpec},
+				{ID: "task-2", Status: sm.Implementing},
+				{ID: "task-3", Status: sm.ReadyForSpec},
+				{ID: "task-4", Status: sm.Closed},
+			},
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+				{TaskID: "task-2", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name:            "GetTasks エラー時は UpdateTaskStatus を呼ばない",
+			tasks:           nil,
+			getTasksErr:     fmt.Errorf("api error"),
+			wantUpdateCalls: nil,
+		},
+		{
+			name: "UpdateTaskStatus エラーは継続する（全タスクに試みる）",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.GeneratingSpec},
+				{ID: "task-2", Status: sm.Implementing},
+			},
+			updateErr: fmt.Errorf("update error"),
+			wantUpdateCalls: []updateCall{
+				{TaskID: "task-1", Status: sm.ReadyForSpec},
+				{TaskID: "task-2", Status: sm.ReadyForCode},
+			},
+		},
+		{
+			name: "processing タスクがない場合は UpdateTaskStatus を呼ばない",
+			tasks: []clickup.Task{
+				{ID: "task-1", Status: sm.ReadyForSpec},
+				{ID: "task-2", Status: sm.SpecReview},
+			},
+			wantUpdateCalls: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &mockTaskClient{
+				tasks:       tt.tasks,
+				taskMap:     map[string]*clickup.Task{},
+				getTasksErr: tt.getTasksErr,
+				updateErr:   tt.updateErr,
+			}
+			dispatcher := &mockWorkflowDispatcher{}
+			o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
+
+			o.recoverProcessingTasks(context.Background())
+
+			fetcher.mu.Lock()
+			defer fetcher.mu.Unlock()
+
+			if len(fetcher.updateCalls) != len(tt.wantUpdateCalls) {
+				t.Fatalf("expected %d update calls, got %d: %v", len(tt.wantUpdateCalls), len(fetcher.updateCalls), fetcher.updateCalls)
+			}
+			for i, want := range tt.wantUpdateCalls {
+				got := fetcher.updateCalls[i]
+				if got.TaskID != want.TaskID || got.Status != want.Status {
+					t.Errorf("update call[%d] = %v, want %v", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// sequentialTaskClient は GetTasks の呼び出し回数に応じて異なるタスクリストを返すモック
+type sequentialTaskClient struct {
+	mockTaskClient
+	callIndex int
+	taskSets  [][]clickup.Task
+}
+
+func (s *sequentialTaskClient) GetTasks(_ context.Context) ([]clickup.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getTasksCalls++
+	if s.getTasksErr != nil {
+		return nil, s.getTasksErr
+	}
+	if s.callIndex < len(s.taskSets) {
+		tasks := s.taskSets[s.callIndex]
+		s.callIndex++
+		return tasks, nil
+	}
+	return []clickup.Task{}, nil
+}
+
+func TestRun_RecoveryCalledBeforeFirstTick(t *testing.T) {
+	sm := defaultSM
+
+	fetcher := &sequentialTaskClient{
+		mockTaskClient: mockTaskClient{taskMap: map[string]*clickup.Task{}},
+		taskSets: [][]clickup.Task{
+			{{ID: "task-1", Status: sm.GeneratingSpec}},
+			{{ID: "task-1", Status: sm.ReadyForSpec}},
+		},
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(fetcher, dispatcher, Config{PollInterval: time.Hour, StatusMapping: sm}, defaultLogger, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o.ctx = ctx
+
+	o.recoverProcessingTasks(ctx)
+
+	fetcher.mu.Lock()
+	if len(fetcher.updateCalls) != 1 {
+		fetcher.mu.Unlock()
+		t.Fatalf("expected 1 update call after recovery, got %d", len(fetcher.updateCalls))
+	}
+	if fetcher.updateCalls[0] != (updateCall{TaskID: "task-1", Status: sm.ReadyForSpec}) {
+		fetcher.mu.Unlock()
+		t.Errorf("unexpected update call: %v", fetcher.updateCalls[0])
+	}
+	fetcher.mu.Unlock()
+
+	o.tick(ctx)
+
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	if len(dispatcher.triggerCalls) != 1 {
+		t.Fatalf("expected 1 trigger call after tick, got %d", len(dispatcher.triggerCalls))
+	}
+	if dispatcher.triggerCalls[0].TaskID != "task-1" {
+		t.Errorf("expected trigger for task-1, got %s", dispatcher.triggerCalls[0].TaskID)
+	}
+	if dispatcher.triggerCalls[0].Phase != string(clickup.PhaseSpec) {
+		t.Errorf("expected phase SPEC, got %s", dispatcher.triggerCalls[0].Phase)
+	}
+}
+
 func TestShutdown_NoActiveDispatch(t *testing.T) {
 	fetcher := &mockTaskClient{taskMap: map[string]*clickup.Task{}}
 	dispatcher := &mockWorkflowDispatcher{}
@@ -677,72 +1113,17 @@ func TestShutdown_TimeoutForcesStop(t *testing.T) {
 	}, defaultLogger, nil)
 
 	// dispatchWg を直接操作して「実行中の dispatch がある」状態をシミュレート
-	// 実際の dispatch goroutine を使わないことで race を回避
 	o.dispatchWg.Add(1)
-	// テスト終了時に Done を呼んで goroutine リークを防ぐ
 	defer o.dispatchWg.Done()
 
 	start := time.Now()
 	o.shutdown()
 	elapsed := time.Since(start)
 
-	// Should have timed out around shutdownTimeout (allow 3x margin)
 	if elapsed > shutdownTimeout*3 {
 		t.Errorf("shutdown took %v, expected around %v", elapsed, shutdownTimeout)
 	}
 	if elapsed < shutdownTimeout/2 {
 		t.Errorf("shutdown returned too early (%v), expected to wait at least ~%v", elapsed, shutdownTimeout)
-	}
-}
-
-func TestScheduleRetry_CancelsExistingTimer(t *testing.T) {
-	sm := defaultSM
-	fetcher := &mockTaskClient{
-		taskMap: map[string]*clickup.Task{
-			"task-1": {ID: "task-1", Status: sm.ReadyForSpec},
-		},
-	}
-	dispatcher := &mockWorkflowDispatcher{}
-	o := New(fetcher, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil)
-	o.ctx = context.Background()
-	defer o.shutdown()
-
-	// attempt=1 で短い遅延のリトライをスケジュール
-	o.scheduleRetry("task-1", "SPEC", 1, fmt.Errorf("error1"))
-
-	// すぐに attempt=2 で上書き → attempt=1 のタイマーはキャンセルされるはず
-	o.scheduleRetry("task-1", "SPEC", 2, fmt.Errorf("error2"))
-
-	// エントリが attempt=2 に更新されていることを確認
-	o.retryMu.Lock()
-	entry, ok := o.retryTimers["task-1"]
-	if !ok {
-		o.retryMu.Unlock()
-		t.Fatal("expected retry timer to exist")
-	}
-	if entry.attempt != 2 {
-		o.retryMu.Unlock()
-		t.Fatalf("expected attempt 2 (latest), got %d", entry.attempt)
-	}
-	o.retryMu.Unlock()
-
-	// handleRetry は attempt 不一致時に何もしないことを検証
-	o.retryMu.Lock()
-	o.retryTimers["task-1"] = &retryEntry{
-		taskID:  "task-1",
-		phase:   "SPEC",
-		attempt: 2,
-		timer:   time.NewTimer(time.Hour), // shutdown 用ダミー
-	}
-	o.retryMu.Unlock()
-
-	// 旧 attempt=1 のコールバックが走った場合: attempt 不一致で早期リターンするはず
-	o.handleRetry("task-1", "SPEC", 1)
-
-	// dispatch が呼ばれていないことを確認（attempt 不一致でガードされた）
-	dispatcher.mu.Lock()
-	defer dispatcher.mu.Unlock()
-	if len(dispatcher.triggerCalls) != 0 {
-		t.Errorf("expected 0 trigger calls (old attempt should be ignored), got %d", len(dispatcher.triggerCalls))
 	}
 }

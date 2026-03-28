@@ -28,6 +28,7 @@ type mockTaskClient struct {
 	getTasksCalls int
 	getTaskCalls  []string
 	updateDelay   time.Duration
+	updateStarted chan struct{} // closed on first UpdateTaskStatus call (optional)
 }
 
 type updateCall struct {
@@ -59,6 +60,13 @@ func (m *mockTaskClient) GetTask(_ context.Context, taskID string) (*clickup.Tas
 }
 
 func (m *mockTaskClient) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
+	if m.updateStarted != nil {
+		select {
+		case <-m.updateStarted:
+		default:
+			close(m.updateStarted)
+		}
+	}
 	if m.updateDelay > 0 {
 		select {
 		case <-time.After(m.updateDelay):
@@ -1350,9 +1358,11 @@ func TestShutdown_TimesOutWithoutStatusUpdate(t *testing.T) {
 	const dispatchDelay = 200 * time.Millisecond
 	const shutdownTimeout = 10 * time.Millisecond
 
+	updateStarted := make(chan struct{})
 	fetcher := &mockTaskClient{
-		taskMap:     map[string]*clickup.Task{},
-		updateDelay: dispatchDelay,
+		taskMap:       map[string]*clickup.Task{},
+		updateDelay:   dispatchDelay,
+		updateStarted: updateStarted,
 	}
 	dispatcher := &mockWorkflowDispatcher{}
 	o := New(fetcher, dispatcher, Config{
@@ -1364,7 +1374,7 @@ func TestShutdown_TimesOutWithoutStatusUpdate(t *testing.T) {
 	task := clickup.Task{ID: "task-1", Status: sm.ReadyForSpec}
 
 	go o.dispatch(context.Background(), task, 1)
-	time.Sleep(5 * time.Millisecond) // let dispatch reach UpdateTaskStatus
+	<-updateStarted // wait until dispatch reaches UpdateTaskStatus
 
 	start := time.Now()
 	o.shutdown()
@@ -1455,6 +1465,7 @@ func TestMultiProjectSharedLimiter(t *testing.T) {
 		t.Errorf("expected %d total trigger calls with shared limiter, got %d (A=%d, B=%d)",
 			maxConcurrent, total, callsA, callsB)
 	}
+	// release() is deferred until reconcile(), so slots remain active after tick completes.
 	if got := limiter.ActiveCount(); got != maxConcurrent {
 		t.Errorf("expected limiter active=%d, got %d", maxConcurrent, got)
 	}

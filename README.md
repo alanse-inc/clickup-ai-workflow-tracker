@@ -46,6 +46,14 @@ projects:
     github_owner: "your-org"
     github_repo: "your-repo"
     # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)
+    # status_mapping:                     # optional (defaults shown below)
+    #   ready_for_spec: "ready for spec"
+    #   generating_spec: "generating spec"
+    #   spec_review: "spec review"
+    #   ready_for_code: "ready for code"
+    #   implementing: "implementing"
+    #   pr_review: "pr review"
+    #   closed: "closed"
 ```
 
 ### 3. 環境変数
@@ -68,17 +76,28 @@ projects:
 <details>
 <summary>ClickUp ステータス名のカスタマイズ（オプション）</summary>
 
-既存の ClickUp リストのステータス名をそのまま使いたい場合、環境変数でオーケストレーター側を合わせることができます。
+既存の ClickUp リストのステータス名をそのまま使いたい場合、`projects.yaml` の `status_mapping` でプロジェクトごとにカスタマイズできます。省略したフィールドはデフォルト値が使われます。
 
-| 変数名 | デフォルト値 |
+```yaml
+projects:
+  - clickup_list_id: "XXXXXXXXX"
+    github_owner: "your-org"
+    github_repo: "your-repo"
+    status_mapping:
+      ready_for_spec: "spec待ち"
+      generating_spec: "spec作成中"
+      # 省略したフィールドはデフォルト値を使用
+```
+
+| フィールド | デフォルト値 |
 |--------|-------------|
-| `CLICKUP_STATUS_READY_FOR_SPEC` | `ready for spec` |
-| `CLICKUP_STATUS_GENERATING_SPEC` | `generating spec` |
-| `CLICKUP_STATUS_SPEC_REVIEW` | `spec review` |
-| `CLICKUP_STATUS_READY_FOR_CODE` | `ready for code` |
-| `CLICKUP_STATUS_IMPLEMENTING` | `implementing` |
-| `CLICKUP_STATUS_PR_REVIEW` | `pr review` |
-| `CLICKUP_STATUS_CLOSED` | `closed` |
+| `ready_for_spec` | `ready for spec` |
+| `generating_spec` | `generating spec` |
+| `spec_review` | `spec review` |
+| `ready_for_code` | `ready for code` |
+| `implementing` | `implementing` |
+| `pr_review` | `pr review` |
+| `closed` | `closed` |
 
 </details>
 
@@ -126,7 +145,7 @@ go build -o bin/server ./cmd/server
 1. ClickUp のカンバンでタスクを **「Idea Draft」** に作成し、概要を記述する
 2. タスクを **「Ready for Spec」** に移動する → AI が仕様書を自動作成
 3. **「Spec Review」** で仕様を確認・修正し、**「Ready for Code」** に移動する → AI がコードを実装し PR を作成
-4. **「PR Review」** でコードレビュー・マージする
+4. **「PR Review」** でコードレビュー・マージする → オーケストレータが PR のマージを検知し、タスクを自動で **「CLOSED」** に遷移
 
 ### ショートカットフロー（SPEC スキップ）
 
@@ -134,7 +153,7 @@ go build -o bin/server ./cmd/server
 
 1. ClickUp のカンバンでタスクを **「Idea Draft」** に作成し、やりたいことを記述する
 2. タスクを直接 **「Ready for Code」** に移動する → AI がタスク名と説明をもとにコードを実装し PR を作成
-3. **「PR Review」** でコードレビュー・マージする
+3. **「PR Review」** でコードレビュー・マージする → オーケストレータが PR のマージを検知し、タスクを自動で **「CLOSED」** に遷移
 
 > **Tip**: ステータスの移動は ClickUp カンバンボード上でドラッグ＆ドロップするだけです。オーケストレータが 10 秒間隔でポーリングし、自動的に検知・ディスパッチします。
 

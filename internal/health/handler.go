@@ -12,15 +12,21 @@ type ServicePinger interface {
 	Ping(ctx context.Context) error
 }
 
+// ProjectPingers は1プロジェクト分の ServicePinger ペアを保持する。
+type ProjectPingers struct {
+	Name    string // "owner/repo" 形式のプロジェクト識別子
+	ClickUp ServicePinger
+	GitHub  ServicePinger
+}
+
 // Handler はヘルスチェックエンドポイントのハンドラ。
 type Handler struct {
-	clickup ServicePinger
-	github  ServicePinger
+	projects []ProjectPingers
 }
 
 // NewHandler は新しい Handler を生成する。
-func NewHandler(clickup, github ServicePinger) *Handler {
-	return &Handler{clickup: clickup, github: github}
+func NewHandler(projects []ProjectPingers) *Handler {
+	return &Handler{projects: projects}
 }
 
 type serviceStatus struct {
@@ -28,43 +34,56 @@ type serviceStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
-type healthResponse struct {
-	Status   string                   `json:"status"`
+type projectStatus struct {
 	Services map[string]serviceStatus `json:"services"`
 }
 
+type healthResponse struct {
+	Status   string                   `json:"status"`
+	Projects map[string]projectStatus `json:"projects"`
+}
+
 type result struct {
-	name string
-	err  error
+	project string
+	service string
+	err     error
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	results := make(chan result, 2)
-	pingers := map[string]ServicePinger{
-		"clickup": h.clickup,
-		"github":  h.github,
-	}
-	for name, pinger := range pingers {
+	total := len(h.projects) * 2
+	results := make(chan result, total)
+
+	for _, proj := range h.projects {
 		go func(name string, p ServicePinger) {
 			pingCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
-			results <- result{name: name, err: p.Ping(pingCtx)}
-		}(name, pinger)
+			results <- result{project: name, service: "clickup", err: p.Ping(pingCtx)}
+		}(proj.Name, proj.ClickUp)
+		go func(name string, p ServicePinger) {
+			pingCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			results <- result{project: name, service: "github", err: p.Ping(pingCtx)}
+		}(proj.Name, proj.GitHub)
 	}
 
-	services := make(map[string]serviceStatus, 2)
+	projects := make(map[string]projectStatus, len(h.projects))
 	degraded := false
-	for range pingers {
+	for range total {
 		res := <-results
+		ps, ok := projects[res.project]
+		if !ok {
+			ps = projectStatus{Services: make(map[string]serviceStatus)}
+		}
 		if res.err != nil {
 			degraded = true
-			services[res.name] = serviceStatus{Status: "error", Message: res.err.Error()}
+			ps.Services[res.service] = serviceStatus{Status: "error", Message: res.err.Error()}
 		} else {
-			services[res.name] = serviceStatus{Status: "ok"}
+			ps.Services[res.service] = serviceStatus{Status: "ok"}
 		}
+		projects[res.project] = ps
 	}
 
-	resp := healthResponse{Services: services}
+	resp := healthResponse{Projects: projects}
 	statusCode := http.StatusOK
 	if degraded {
 		resp.Status = "degraded"

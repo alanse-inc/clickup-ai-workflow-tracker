@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.2.0...v1.3.0) (2026-03-28)
+
+
+### Features
+
+* /status エンドポイントを追加してランタイム状態を外部公開 ([#78](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/78)) ([fa3b371](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/fa3b3718d69dab593d924c743a4afe14ccf9abc2))
+* agent.yaml phase 入力を choice 型にしてバリデーション追加 ([#76](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/76)) ([cb02868](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/cb02868f104828b917b25d427b6eb545e233d23c))
+* Go 品質チェック (fmt/lint/test) を hooks・skills・agent に統合 ([#82](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/82)) ([cdef0bb](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/cdef0bbf27769488a36cd08e0046918a0cc66493))
+* graceful shutdown で実行中 dispatch の完了を待機する ([#72](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/72)) ([c0228b5](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/c0228b506fbc8a8301cb4829a8fb9386ff2fcb45))
+* PR マージ時に ClickUp タスクを自動で CLOSED に遷移する ([#83](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/83)) ([a085600](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/a085600efd6cdcc18f0638657a53295fcccb8011))
+* ヘルスチェックを全プロジェクト対応にする ([#71](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/71)) ([ab8efce](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/ab8efcea8e7a5d9d753a07b8174df01ed9fbe2a9))
+* 再起動後の processing ステータスタスク復旧機能を実装 ([#74](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/74)) ([5e89f14](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/5e89f140653d79042754a551880dfcbda2ab2aac))
+
+
+### Bug Fixes
+
+* claude-code-review に allowed_bots を追加 ([#77](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/77)) ([174789f](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/174789f0bb5c2bd86f19fae670f0da443ed1873f))
+* execution_file の構造をデバッグ出力し再帰的テキスト抽出に対応 ([#80](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/80)) ([834e3e8](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/834e3e89ce15dddcf24934129fe2f8079d3a76c2))
+* SPEC フェーズで元の description を保持し markdown_description で追記する ([#65](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/65)) ([2a1fc84](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/2a1fc84780d3df3b738e120132863c9a5064442c))
+* SPEC フェーズの仕様書を execution_file から抽出する ([#79](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/79)) ([454c986](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/454c9868f0ee3f9631ae4f33de070e67be9524b7))
+* SPEC フェーズの仕様書抽出ロジックを堅牢にする ([#75](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/75)) ([1a51fd8](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/1a51fd86220f67e5c978d7e290bf45b6ac911dbe))
+
 ## [1.2.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.1.0...v1.2.0) (2026-03-27)
 
 

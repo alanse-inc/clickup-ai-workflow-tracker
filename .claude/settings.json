@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE_PATH=$(jq -r '.tool_input.file_path // empty') && if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.go$'; then golangci-lint fmt \"$FILE_PATH\" && golangci-lint run --fix \"$FILE_PATH\"; fi"
+            "command": "FILE_PATH=$(jq -r '.tool_input.file_path // empty') && if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.go$'; then DIR=$(dirname \"$FILE_PATH\") && golangci-lint fmt \"$DIR\" && golangci-lint run --fix \"$DIR\"; fi"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COMMAND=$(jq -r '.tool_input.command // empty') && if echo \"$COMMAND\" | grep -qE '^git commit'; then cd \"$(jq -r '.cwd // \".\"')\" && golangci-lint run ./... && go test ./... || (echo 'BLOCKED: lint or test failed. Fix before committing.' >&2; exit 2); fi"
+            "command": "INPUT=$(cat) && COMMAND=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty') && if echo \"$COMMAND\" | grep -qE '^git commit'; then cd \"$(echo \"$INPUT\" | jq -r '.cwd // \".\"')\" && golangci-lint run ./... && go test ./... || (echo 'BLOCKED: lint or test failed. Fix before committing.' >&2; exit 2); fi"
           }
         ]
       }

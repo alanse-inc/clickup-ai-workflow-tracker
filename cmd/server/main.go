@@ -70,7 +70,15 @@ func main() {
 		port = "8080"
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /health", health.NewHandler(clickupClients[0], dispatchers[0]))
+	pingers := make([]health.ProjectPingers, len(cfg.Projects))
+	for i, proj := range cfg.Projects {
+		pingers[i] = health.ProjectPingers{
+			Name:    proj.GitHubOwner + "/" + proj.GitHubRepo,
+			ClickUp: clickupClients[i],
+			GitHub:  dispatchers[i],
+		}
+	}
+	mux.Handle("GET /health", health.NewHandler(pingers))
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,

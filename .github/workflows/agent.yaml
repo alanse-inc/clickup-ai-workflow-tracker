@@ -180,20 +180,28 @@ jobs:
             echo "::warning::execution_file not found: ${EXECUTION_FILE}"
             exit 0
           fi
-          echo "::debug::execution_file=${EXECUTION_FILE}"
-          echo "::debug::file size=$(wc -c < "$EXECUTION_FILE") bytes"
-          # 実行結果 JSON の最後の assistant メッセージからテキストブロックを抽出
+          echo "::warning::execution_file=${EXECUTION_FILE}, size=$(wc -c < "$EXECUTION_FILE") bytes"
+          echo "::warning::top-level keys: $(jq -r 'keys | join(", ")' "$EXECUTION_FILE" 2>/dev/null || echo 'parse error')"
+          # Claude Code CLI の実行結果 JSON から最後の assistant テキストを抽出
+          # 形式1: {messages: [{role, content}]} / 形式2: {type: "assistant", message: {content}} の配列
           SPEC=$(jq -r '
-            [.messages[]? | select(.role == "assistant")] | last |
-            [.content[]? | select(.type == "text") | .text] | join("\n")
+            # 形式1: messages 配列
+            if .messages then
+              [.messages[] | select(.role == "assistant")] | last |
+              [.content[]? | select(.type == "text") | .text] | join("\n")
+            # 形式2: result フィールド
+            elif .result then .result
+            else empty end
           ' "$EXECUTION_FILE" 2>/dev/null || echo "")
           if [ -z "$SPEC" ]; then
-            # フォールバック: トップレベル result フィールド
-            SPEC=$(jq -r '.result // empty' "$EXECUTION_FILE" 2>/dev/null || echo "")
+            # フォールバック: 再帰的に最後の assistant テキストを探索
+            SPEC=$(jq -r '
+              [.. | objects | select(.role? == "assistant") | .content[]? | select(.type? == "text") | .text] | last // empty
+            ' "$EXECUTION_FILE" 2>/dev/null || echo "")
           fi
           if [ -z "$SPEC" ]; then
             echo "::warning::No text content found in execution output."
-            echo "::debug::keys=$(jq -r 'keys | join(",")' "$EXECUTION_FILE" 2>/dev/null)"
+            echo "::warning::first 500 chars: $(head -c 500 "$EXECUTION_FILE")"
             exit 0
           fi
           DELIMITER="SPEC_$(openssl rand -hex 8)"

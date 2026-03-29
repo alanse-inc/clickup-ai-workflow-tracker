@@ -256,6 +256,15 @@ func (o *Orchestrator) tick(ctx context.Context) {
 	}
 }
 
+// reconcileAction は reconcileTask の結果を表す
+type reconcileAction int
+
+const (
+	actionSkip    reconcileAction = iota // エラー等でスキップ（状態維持）
+	actionKeep                           // 処理中として維持
+	actionRelease                        // リリース
+)
+
 // reconcile は実行中タスクのリコンシリエーションを行う
 func (o *Orchestrator) reconcile(ctx context.Context) {
 	runningIDs := o.state.RunningTaskIDs()
@@ -266,68 +275,64 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 			continue
 		}
 
-		// PR Review ステータスかつ PRChecker が有効な場合、マージ状態を確認する。
-		// このブロックは下流の IsTerminalStatus / IsProcessingStatus 判定を完全にバイパスする。
-		// prChecker == nil の場合は「処理中でも終端でもない → reconciliation_release」パスへ移行する。
-		if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
-			merged, err := o.prChecker.IsPRMerged(ctx, taskID)
-			if err != nil {
-				o.logger.Warn("failed to check PR merge status, skipping",
-					"task_id", taskID, "error", err)
-				continue
-			}
-			if merged {
-				if err := o.taskClient.UpdateTaskStatus(ctx, taskID, o.statusMapping.Closed); err != nil {
-					o.logger.Error("failed to update task to closed",
-						"task_id", taskID, "error", err)
-					continue
-				}
-				o.logger.Info("pr merged, task closed", "task_id", taskID)
-				o.release(taskID)
-				continue
-			}
-			// 未マージ: 処理中として維持
-			continue
-		}
-
-		// Spec Review ステータスかつ PRChecker が有効な場合、SPEC PR のマージ状態を確認する。
-		// SPEC PR がマージされていれば "ready for code" へ遷移する。
-		// prChecker == nil の場合は「処理中でも終端でもない → reconciliation_release」パスへ移行する。
-		if o.prChecker != nil && task.Status == o.statusMapping.SpecReview {
-			merged, err := o.prChecker.IsSpecPRMerged(ctx, taskID)
-			if err != nil {
-				o.logger.Warn("failed to check spec PR merge status, skipping",
-					"task_id", taskID, "error", err)
-				continue
-			}
-			if merged {
-				if err := o.taskClient.UpdateTaskStatus(ctx, taskID, o.statusMapping.ReadyForCode); err != nil {
-					o.logger.Error("failed to update task to ready for code",
-						"task_id", taskID, "error", err)
-					continue
-				}
-				o.logger.Info("spec pr merged, task ready for code", "task_id", taskID)
-				o.release(taskID)
-				continue
-			}
-			// 未マージ: 処理中として維持
-			continue
-		}
-
-		if o.statusMapping.IsTerminalStatus(task.Status) {
-			o.logger.Info("task reached terminal status, releasing", "task_id", taskID, "status", task.Status)
+		switch o.reconcileTask(ctx, taskID, task) {
+		case actionRelease:
 			o.release(taskID)
-			continue
+		case actionKeep, actionSkip:
+			// 維持
 		}
-
-		if o.statusMapping.IsProcessingStatus(task.Status) {
-			continue
-		}
-
-		// 処理中でも終端でもない場合（トリガー状態に戻った場合や手動変更を含む）はリリース
-		o.logger.Info("reconciliation_release", "task_id", taskID, "status", task.Status)
-		o.release(taskID)
 	}
+}
+
+// reconcileTask は単一タスクのリコンシリエーションを行い、取るべきアクションを返す。
+// prChecker == nil の場合、レビューステータスのタスクは「処理中でも終端でもない → release」パスへ移行する。
+func (o *Orchestrator) reconcileTask(ctx context.Context, taskID string, task *clickup.Task) reconcileAction {
+	if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
+		return o.reconcilePRMerge(ctx, taskID, o.prChecker.IsPRMerged, o.statusMapping.Closed, "pr merged, task closed")
+	}
+
+	if o.prChecker != nil && task.Status == o.statusMapping.SpecReview {
+		return o.reconcilePRMerge(ctx, taskID, o.prChecker.IsSpecPRMerged, o.statusMapping.ReadyForCode, "spec pr merged, task ready for code")
+	}
+
+	if o.statusMapping.IsTerminalStatus(task.Status) {
+		o.logger.Info("task reached terminal status, releasing", "task_id", taskID, "status", task.Status)
+		return actionRelease
+	}
+
+	if o.statusMapping.IsProcessingStatus(task.Status) {
+		return actionKeep
+	}
+
+	// 処理中でも終端でもない場合（トリガー状態に戻った場合や手動変更を含む）はリリース
+	o.logger.Info("reconciliation_release", "task_id", taskID, "status", task.Status)
+	return actionRelease
+}
+
+// reconcilePRMerge は PR マージ状態を確認し、マージ済みなら nextStatus に遷移する。
+func (o *Orchestrator) reconcilePRMerge(
+	ctx context.Context,
+	taskID string,
+	checkMerged func(ctx context.Context, taskID string) (bool, error),
+	nextStatus string,
+	logMsg string,
+) reconcileAction {
+	merged, err := checkMerged(ctx, taskID)
+	if err != nil {
+		o.logger.Warn("failed to check PR merge status, skipping",
+			"task_id", taskID, "error", err)
+		return actionSkip
+	}
+	if merged {
+		if err := o.taskClient.UpdateTaskStatus(ctx, taskID, nextStatus); err != nil {
+			o.logger.Error("failed to update task status",
+				"task_id", taskID, "next_status", nextStatus, "error", err)
+			return actionSkip
+		}
+		o.logger.Info(logMsg, "task_id", taskID)
+		return actionRelease
+	}
+	return actionKeep
 }
 
 // dispatch はタスクのディスパッチを行う。attempt はリトライ回数で、失敗時に scheduleRetry に引き継がれる。

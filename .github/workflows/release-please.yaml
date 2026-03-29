@@ -63,7 +63,7 @@ jobs:
 
   deploy:
     needs: [release-please, docker]
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created && needs.docker.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -77,6 +77,8 @@ jobs:
 
       - name: Trigger deploy workflow
         uses: actions/github-script@v7
+        env:
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
@@ -85,6 +87,6 @@ jobs:
               repo: 'clickup-ai-orchestrator-deployment',
               event_type: 'deploy',
               client_payload: {
-                tag: '${{ needs.release-please.outputs.tag_name }}'
+                tag: process.env.TAG_NAME
               }
             });

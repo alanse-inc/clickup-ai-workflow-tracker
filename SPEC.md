@@ -244,6 +244,7 @@ projects:
     github_owner: "org"
     github_repo: "repo-a"
     github_workflow_file: "agent.yaml"  # optional, default: agent.yaml
+    spec_output: "clickup"              # optional: "clickup" (default) or "repo"
     status_mapping:                     # optional, per-project status name override
       ready_for_spec: "ready for spec"
       generating_spec: "generating spec"
@@ -261,6 +262,10 @@ projects:
 プロジェクトごとに独立した goroutine でポーリングを実行する。`MAX_CONCURRENT_TASKS` は全プロジェクト合算のグローバル上限として機能する。
 
 各プロジェクトは `status_mapping` セクションで ClickUp ステータス名をカスタマイズできる。省略したフィールドはデフォルト値（Section 5.1 のステータス名を小文字化したもの）が使われる。
+
+各プロジェクトは `spec_output` で SPEC フェーズの出力先を選択できる:
+- `clickup`（default）: 仕様書を ClickUp タスクの Description に書き戻す。
+- `repo`: 仕様書をリポジトリにコミットし、設計 PR を作成する。配置先やフォーマットは作業対象リポジトリの CLAUDE.md やスキルに委譲する。
 
 ### 6.3 Startup Validation
 
@@ -428,6 +433,14 @@ on:
         description: 'ClickUp status to revert on error (e.g. ready for spec, ready for code)'
         required: true
         type: string
+      spec_output:
+        description: 'SPEC output destination: clickup or repo'
+        required: false
+        type: choice
+        options:
+          - clickup
+          - repo
+        default: 'clickup'
 ```
 
 ステータス名の定義はオーケストレータ（Go Server）に一元化する。`agent.yaml` はステータス名をハードコードせず、`inputs.status_on_success` / `inputs.status_on_error` をそのまま ClickUp API に渡す。
@@ -464,13 +477,19 @@ on:
 
 ### 9.5 Phase A: SPEC (Specification Generation)
 
-- **Input**: `task_id`, `phase=SPEC`, `status_on_success=spec review`, `status_on_error=ready for spec`
-- **処理**:
+- **Input**: `task_id`, `phase=SPEC`, `status_on_success=spec review`, `status_on_error=ready for spec`, `spec_output=clickup|repo`
+- **処理（clickup モード）**:
   1. ClickUp API からタスク内容を取得（Section 9.4）。
   2. Claude Code Action にタスク内容を prompt として渡し、リポジトリの現状を踏まえた Markdown 仕様書を生成させる。
   3. ワークフロー内で ClickUp API を叩き、タスクの Description を仕様書で更新。
   4. ClickUp API でステータスを `inputs.status_on_success` に変更。
-- **Output**: タスクの Description に仕様書が記載され、ステータスが遷移。
+- **Output（clickup モード）**: タスクの Description に仕様書が記載され、ステータスが遷移。
+- **処理（repo モード）**:
+  1. ClickUp API からタスク内容を取得（Section 9.4）。
+  2. Claude Code Action に仕様書作成を指示。`spec/clickup-{task_id}` ブランチで仕様書をリポジトリにコミットし、設計 PR を作成させる。配置先やフォーマットは作業対象リポジトリの CLAUDE.md やスキルに委譲する。
+  3. ClickUp にコメントとして設計 PR リンクを投稿。
+  4. ClickUp API でステータスを `inputs.status_on_success` に変更。
+- **Output（repo モード）**: 設計 PR が作成され、ステータスが遷移、PR リンクが ClickUp にコメントとして記録。
 
 ### 9.6 Phase B: CODE (Implementation)
 

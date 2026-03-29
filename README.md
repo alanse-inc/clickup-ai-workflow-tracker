@@ -46,6 +46,7 @@ projects:
     github_owner: "your-org"
     github_repo: "your-repo"
     # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)
+    # spec_output: "clickup"              # optional: "clickup" (default) or "repo"
     # status_mapping:                     # optional (defaults shown below)
     #   ready_for_spec: "ready for spec"
     #   generating_spec: "generating spec"
@@ -98,6 +99,26 @@ projects:
 | `implementing` | `implementing` |
 | `pr_review` | `pr review` |
 | `closed` | `closed` |
+
+</details>
+
+<details>
+<summary>SPEC フェーズの出力先カスタマイズ（オプション）</summary>
+
+`spec_output` でプロジェクトごとに SPEC フェーズの出力先を選択できます。
+
+| 値 | 動作 |
+|------|------|
+| `clickup`（default） | 仕様書を ClickUp タスクの Description に書き戻す |
+| `repo` | 仕様書をリポジトリにコミットし、設計 PR を作成する。配置先やフォーマットは作業対象リポジトリの CLAUDE.md やスキル（`/spec` 等）に従う |
+
+```yaml
+projects:
+  - clickup_list_id: "XXXXXXXXX"
+    github_owner: "your-org"
+    github_repo: "your-repo"
+    spec_output: "repo"
+```
 
 </details>
 

@@ -52,9 +52,9 @@ func NewPRChecker(auth Authenticator, owner, repo string) *GitHubPRChecker {
 	}
 }
 
-// IsPRMerged はブランチ名規約 feature/clickup-{taskID} で PR を検索し、
+// IsFeaturePRMerged はブランチ名規約 feature/clickup-{taskID} で PR を検索し、
 // 見つからなければ PR 本文の "Closes CU-{taskID}" でフォールバック検索する。
-func (c *GitHubPRChecker) IsPRMerged(ctx context.Context, taskID string) (bool, error) {
+func (c *GitHubPRChecker) IsFeaturePRMerged(ctx context.Context, taskID string) (bool, error) {
 	status, _ := c.isBranchPRMerged(ctx, fmt.Sprintf("feature/clickup-%s", taskID))
 	if status == mergeStatusMerged {
 		return true, nil

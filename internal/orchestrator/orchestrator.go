@@ -24,7 +24,7 @@ type WorkflowDispatcher interface {
 
 // PRChecker は GitHub PR のマージ状態を確認するインターフェース
 type PRChecker interface {
-	IsPRMerged(ctx context.Context, taskID string) (bool, error)
+	IsFeaturePRMerged(ctx context.Context, taskID string) (bool, error)
 	IsSpecPRMerged(ctx context.Context, taskID string) (bool, error)
 }
 
@@ -288,7 +288,7 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 // prChecker == nil の場合、レビューステータスのタスクは「処理中でも終端でもない → release」パスへ移行する。
 func (o *Orchestrator) reconcileTask(ctx context.Context, taskID string, task *clickup.Task) reconcileAction {
 	if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
-		return o.reconcilePRMerge(ctx, taskID, o.prChecker.IsPRMerged, o.statusMapping.Closed, "pr merged, task closed")
+		return o.reconcilePRMerge(ctx, taskID, o.prChecker.IsFeaturePRMerged, o.statusMapping.Closed, "pr merged, task closed")
 	}
 
 	if o.prChecker != nil && task.Status == o.statusMapping.SpecReview {

@@ -60,7 +60,7 @@ func setupPRChecker(ts *prCheckerTestServer) (*GitHubPRChecker, *httptest.Server
 	return c, server
 }
 
-func TestIsPRMerged_BranchSearch(t *testing.T) {
+func TestIsFeaturePRMerged_BranchSearch(t *testing.T) {
 	tests := []struct {
 		name         string
 		branchStatus int
@@ -156,7 +156,7 @@ func TestIsPRMerged_BranchSearch(t *testing.T) {
 			c, server := setupPRChecker(ts)
 			defer server.Close()
 
-			got, err := c.IsPRMerged(context.Background(), "task123")
+			got, err := c.IsFeaturePRMerged(context.Background(), "task123")
 
 			if tt.wantErr {
 				if err == nil {
@@ -168,7 +168,7 @@ func TestIsPRMerged_BranchSearch(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != tt.want {
-				t.Errorf("IsPRMerged() = %v, want %v", got, tt.want)
+				t.Errorf("IsFeaturePRMerged() = %v, want %v", got, tt.want)
 			}
 			if ts.searchCalled != tt.wantSearch {
 				t.Errorf("search called = %v, want %v", ts.searchCalled, tt.wantSearch)
@@ -177,7 +177,7 @@ func TestIsPRMerged_BranchSearch(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_BranchRequestParams(t *testing.T) {
+func TestIsFeaturePRMerged_BranchRequestParams(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `[{"merged_at":"2024-01-01T00:00:00Z"}]`,
@@ -187,7 +187,7 @@ func TestIsPRMerged_BranchRequestParams(t *testing.T) {
 	c, server := setupPRChecker(ts)
 	defer server.Close()
 
-	_, err := c.IsPRMerged(context.Background(), "task123")
+	_, err := c.IsFeaturePRMerged(context.Background(), "task123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestIsPRMerged_BranchRequestParams(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_FallbackSearchParams(t *testing.T) {
+func TestIsFeaturePRMerged_FallbackSearchParams(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `[]`,
@@ -223,7 +223,7 @@ func TestIsPRMerged_FallbackSearchParams(t *testing.T) {
 	c, server := setupPRChecker(ts)
 	defer server.Close()
 
-	_, err := c.IsPRMerged(context.Background(), "task123")
+	_, err := c.IsFeaturePRMerged(context.Background(), "task123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestIsPRMerged_FallbackSearchParams(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_MultiplePRs(t *testing.T) {
+func TestIsFeaturePRMerged_MultiplePRs(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `[{"merged_at":null},{"merged_at":"2024-01-01T00:00:00Z"}]`,
@@ -259,7 +259,7 @@ func TestIsPRMerged_MultiplePRs(t *testing.T) {
 	c, server := setupPRChecker(ts)
 	defer server.Close()
 
-	got, err := c.IsPRMerged(context.Background(), "task456")
+	got, err := c.IsFeaturePRMerged(context.Background(), "task456")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestIsPRMerged_MultiplePRs(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_InvalidJSON(t *testing.T) {
+func TestIsFeaturePRMerged_InvalidJSON(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `invalid json`,
@@ -280,7 +280,7 @@ func TestIsPRMerged_InvalidJSON(t *testing.T) {
 
 	// ブランチ検索が不正 JSON → エラー → フォールバックへ
 	// フォールバックは空 → false
-	got, err := c.IsPRMerged(context.Background(), "task789")
+	got, err := c.IsFeaturePRMerged(context.Background(), "task789")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestIsPRMerged_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_FallbackFindsAfterBranchUnmerged(t *testing.T) {
+func TestIsFeaturePRMerged_FallbackFindsAfterBranchUnmerged(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `[{"merged_at":null}]`,
@@ -299,7 +299,7 @@ func TestIsPRMerged_FallbackFindsAfterBranchUnmerged(t *testing.T) {
 	c, server := setupPRChecker(ts)
 	defer server.Close()
 
-	got, err := c.IsPRMerged(context.Background(), "task123")
+	got, err := c.IsFeaturePRMerged(context.Background(), "task123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestIsSpecPRMerged_FallbackSearchParams(t *testing.T) {
 	}
 }
 
-func TestIsPRMerged_NetworkError(t *testing.T) {
+func TestIsFeaturePRMerged_NetworkError(t *testing.T) {
 	ts := &prCheckerTestServer{
 		branchStatus: http.StatusOK,
 		branchBody:   `[]`,
@@ -463,7 +463,7 @@ func TestIsPRMerged_NetworkError(t *testing.T) {
 	c, server := setupPRChecker(ts)
 	server.Close() // 両方のエンドポイントがネットワークエラーになる
 
-	_, err := c.IsPRMerged(context.Background(), "task123")
+	_, err := c.IsFeaturePRMerged(context.Background(), "task123")
 	if err == nil {
 		t.Fatal("expected error for network failure, got nil")
 	}

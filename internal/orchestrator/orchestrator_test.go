@@ -119,7 +119,7 @@ type mockPRChecker struct {
 	specCalls  []string
 }
 
-func (m *mockPRChecker) IsPRMerged(_ context.Context, taskID string) (bool, error) {
+func (m *mockPRChecker) IsFeaturePRMerged(_ context.Context, taskID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, taskID)

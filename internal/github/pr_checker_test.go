@@ -158,6 +158,9 @@ func TestIsFeaturePRMerged_BranchSearch(t *testing.T) {
 
 			got, err := c.IsFeaturePRMerged(context.Background(), "task123")
 
+			if ts.searchCalled != tt.wantSearch {
+				t.Errorf("search called = %v, want %v", ts.searchCalled, tt.wantSearch)
+			}
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -169,9 +172,6 @@ func TestIsFeaturePRMerged_BranchSearch(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("IsFeaturePRMerged() = %v, want %v", got, tt.want)
-			}
-			if ts.searchCalled != tt.wantSearch {
-				t.Errorf("search called = %v, want %v", ts.searchCalled, tt.wantSearch)
 			}
 		})
 	}
@@ -388,6 +388,9 @@ func TestIsSpecPRMerged(t *testing.T) {
 
 			got, err := c.IsSpecPRMerged(context.Background(), "task123")
 
+			if ts.searchCalled != tt.wantSearch {
+				t.Errorf("search called = %v, want %v", ts.searchCalled, tt.wantSearch)
+			}
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -399,9 +402,6 @@ func TestIsSpecPRMerged(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("IsSpecPRMerged() = %v, want %v", got, tt.want)
-			}
-			if ts.searchCalled != tt.wantSearch {
-				t.Errorf("search called = %v, want %v", ts.searchCalled, tt.wantSearch)
 			}
 		})
 	}

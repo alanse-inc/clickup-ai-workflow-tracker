@@ -71,64 +71,74 @@ func loadProjects(path string) ([]ProjectConfig, error) {
 
 	projects := make([]ProjectConfig, len(pf.Projects))
 	for i, p := range pf.Projects {
-		var missing []string
-		if p.ClickUpListID == "" {
-			missing = append(missing, "clickup_list_id")
-		}
-		if p.GitHubOwner == "" {
-			missing = append(missing, "github_owner")
-		}
-		if p.GitHubRepo == "" {
-			missing = append(missing, "github_repo")
-		}
-		if len(missing) > 0 {
-			return nil, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
-		}
-
-		workflowFile := p.GitHubWorkflowFile
-		if workflowFile == "" {
-			workflowFile = defaultWorkflowFile
-		}
-
-		specOutput, err := resolveSpecOutput(p.SpecOutput)
+		pc, err := convertProject(p)
 		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
+			return nil, fmt.Errorf("project[%d]: %w", i, err)
 		}
-
-		sm, err := resolveStatusMapping(p.StatusMapping)
-		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): invalid status_mapping: %w", i, p.GitHubOwner, p.GitHubRepo, err)
-		}
-
-		pollIntervalMS, err := resolvePollIntervalMS(p.PollIntervalMS)
-		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
-		}
-
-		maxConcurrentTasks, err := resolveMaxConcurrentTasks(p.MaxConcurrentTasks)
-		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
-		}
-
-		shutdownTimeoutMS, err := resolveShutdownTimeoutMS(p.ShutdownTimeoutMS)
-		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
-		}
-
-		projects[i] = ProjectConfig{
-			ClickUpListID:      p.ClickUpListID,
-			GitHubOwner:        p.GitHubOwner,
-			GitHubRepo:         p.GitHubRepo,
-			GitHubWorkflowFile: workflowFile,
-			StatusMapping:      sm,
-			SpecOutput:         specOutput,
-			PollIntervalMS:     pollIntervalMS,
-			MaxConcurrentTasks: maxConcurrentTasks,
-			ShutdownTimeoutMS:  shutdownTimeoutMS,
-		}
+		projects[i] = pc
 	}
 
 	return projects, nil
+}
+
+func convertProject(p rawProjectConfig) (ProjectConfig, error) {
+	var missing []string
+	if p.ClickUpListID == "" {
+		missing = append(missing, "clickup_list_id")
+	}
+	if p.GitHubOwner == "" {
+		missing = append(missing, "github_owner")
+	}
+	if p.GitHubRepo == "" {
+		missing = append(missing, "github_repo")
+	}
+	if len(missing) > 0 {
+		return ProjectConfig{}, fmt.Errorf("missing required fields: %s", strings.Join(missing, ", "))
+	}
+
+	label := p.GitHubOwner + "/" + p.GitHubRepo
+
+	workflowFile := p.GitHubWorkflowFile
+	if workflowFile == "" {
+		workflowFile = defaultWorkflowFile
+	}
+
+	specOutput, err := resolveSpecOutput(p.SpecOutput)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+	}
+
+	sm, err := resolveStatusMapping(p.StatusMapping)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("(%s): invalid status_mapping: %w", label, err)
+	}
+
+	pollIntervalMS, err := resolvePollIntervalMS(p.PollIntervalMS)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+	}
+
+	maxConcurrentTasks, err := resolveMaxConcurrentTasks(p.MaxConcurrentTasks)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+	}
+
+	shutdownTimeoutMS, err := resolveShutdownTimeoutMS(p.ShutdownTimeoutMS)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+	}
+
+	return ProjectConfig{
+		ClickUpListID:      p.ClickUpListID,
+		GitHubOwner:        p.GitHubOwner,
+		GitHubRepo:         p.GitHubRepo,
+		GitHubWorkflowFile: workflowFile,
+		StatusMapping:      sm,
+		SpecOutput:         specOutput,
+		PollIntervalMS:     pollIntervalMS,
+		MaxConcurrentTasks: maxConcurrentTasks,
+		ShutdownTimeoutMS:  shutdownTimeoutMS,
+	}, nil
 }
 
 func resolvePollIntervalMS(v *int) (int, error) {

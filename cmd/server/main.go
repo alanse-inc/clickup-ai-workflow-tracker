@@ -43,44 +43,10 @@ func main() {
 		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
 	}
 
-	// 全プロジェクトのステータス検証を先に完了する
-	clickupClients := make([]*clickup.Client, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		clickupClients[i] = clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
-		if err := validateStatuses(clickupClients[i], proj.StatusMapping); err != nil {
-			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
-			os.Exit(1)
-		}
-	}
-
-	// プロジェクトごとの並行数リミッタ
-	limiters := make([]*orchestrator.ConcurrencyLimiter, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		limiters[i] = orchestrator.NewConcurrencyLimiter(proj.MaxConcurrentTasks)
-	}
-
-	dispatchers := make([]*gh.Dispatcher, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		dispatchers[i] = gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
-	}
-
-	prCheckers := make([]*gh.GitHubPRChecker, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		prCheckers[i] = gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
-	}
-
-	// オーケストレータをあらかじめ生成し、/status ハンドラに渡す
-	orchs := make([]*orchestrator.Orchestrator, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
-		projectLogger := logger.With("project", projectLabel)
-		orchCfg := orchestrator.Config{
-			PollInterval:    time.Duration(proj.PollIntervalMS) * time.Millisecond,
-			StatusMapping:   proj.StatusMapping,
-			ShutdownTimeout: time.Duration(proj.ShutdownTimeoutMS) * time.Millisecond,
-			SpecOutput:      proj.SpecOutput,
-		}
-		orchs[i] = orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiters[i], projectLabel, prCheckers[i])
+	pi, err := initProjects(cfg, githubAuth, logger)
+	if err != nil {
+		slog.Error("project_init_failed", "error", err)
+		os.Exit(1)
 	}
 
 	port := os.Getenv("PORT")
@@ -88,21 +54,13 @@ func main() {
 		port = "8080"
 	}
 	mux := http.NewServeMux()
-	pingers := make([]health.ProjectPingers, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		pingers[i] = health.ProjectPingers{
-			Name:    proj.GitHubOwner + "/" + proj.GitHubRepo,
-			ClickUp: clickupClients[i],
-			GitHub:  dispatchers[i],
-		}
-	}
-	statusProviders := make([]status.StatusProvider, len(orchs))
-	limiterStatuses := make([]status.LimiterStatus, len(orchs))
-	for i, o := range orchs {
+	statusProviders := make([]status.StatusProvider, len(pi.orchs))
+	limiterStatuses := make([]status.LimiterStatus, len(pi.orchs))
+	for i, o := range pi.orchs {
 		statusProviders[i] = o
-		limiterStatuses[i] = limiters[i]
+		limiterStatuses[i] = pi.limiters[i]
 	}
-	mux.Handle("GET /health", health.NewHandler(pingers))
+	mux.Handle("GET /health", health.NewHandler(pi.pingers))
 	mux.Handle("GET /status", status.NewHandler(limiterStatuses, statusProviders))
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -142,7 +100,7 @@ func main() {
 		go func(o *orchestrator.Orchestrator) {
 			defer wg.Done()
 			o.Run(ctx)
-		}(orchs[i])
+		}(pi.orchs[i])
 	}
 
 	select {
@@ -154,6 +112,47 @@ func main() {
 
 	wg.Wait()
 	slog.InfoContext(ctx, "service_stopped")
+}
+
+type projectInstances struct {
+	orchs    []*orchestrator.Orchestrator
+	limiters []*orchestrator.ConcurrencyLimiter
+	pingers  []health.ProjectPingers
+}
+
+func initProjects(cfg *config.Config, githubAuth gh.Authenticator, logger *slog.Logger) (*projectInstances, error) {
+	n := len(cfg.Projects)
+	orchs := make([]*orchestrator.Orchestrator, n)
+	limiters := make([]*orchestrator.ConcurrencyLimiter, n)
+	pingers := make([]health.ProjectPingers, n)
+
+	for i, proj := range cfg.Projects {
+		client := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
+		if err := validateStatuses(client, proj.StatusMapping); err != nil {
+			return nil, fmt.Errorf("project %s/%s: %w", proj.GitHubOwner, proj.GitHubRepo, err)
+		}
+
+		dispatcher := gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
+		prChecker := gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
+		limiters[i] = orchestrator.NewConcurrencyLimiter(proj.MaxConcurrentTasks)
+
+		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
+		orchCfg := orchestrator.Config{
+			PollInterval:    time.Duration(proj.PollIntervalMS) * time.Millisecond,
+			StatusMapping:   proj.StatusMapping,
+			ShutdownTimeout: time.Duration(proj.ShutdownTimeoutMS) * time.Millisecond,
+			SpecOutput:      proj.SpecOutput,
+		}
+		orchs[i] = orchestrator.New(client, dispatcher, orchCfg, logger.With("project", projectLabel), limiters[i], projectLabel, prChecker)
+
+		pingers[i] = health.ProjectPingers{
+			Name:    projectLabel,
+			ClickUp: client,
+			GitHub:  dispatcher,
+		}
+	}
+
+	return &projectInstances{orchs: orchs, limiters: limiters, pingers: pingers}, nil
 }
 
 func validateStatuses(client *clickup.Client, sm clickup.StatusMapping) error {

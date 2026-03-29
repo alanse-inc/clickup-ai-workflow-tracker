@@ -48,63 +48,79 @@ type projectsFile struct {
 	Projects []rawProjectConfig `yaml:"projects"`
 }
 
-func loadProjects(path string) ([]ProjectConfig, error) {
+func loadProjects(path string) ([]ProjectConfig, []error, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // パスは環境変数 PROJECTS_FILE またはデフォルト値で制御される
 	if err != nil {
-		return nil, fmt.Errorf("reading projects file: %w", err)
+		return nil, nil, fmt.Errorf("reading projects file: %w", err)
 	}
 
 	var pf projectsFile
 	if err := yaml.Unmarshal(data, &pf); err != nil {
-		return nil, fmt.Errorf("parsing projects file: %w", err)
+		return nil, nil, fmt.Errorf("parsing projects file: %w", err)
 	}
 
 	if len(pf.Projects) == 0 {
-		return nil, fmt.Errorf("projects file must contain at least one project")
+		return nil, nil, fmt.Errorf("projects file must contain at least one project")
 	}
 
-	projects := make([]ProjectConfig, len(pf.Projects))
+	var projects []ProjectConfig
+	var skipped []error
 	for i, p := range pf.Projects {
-		var missing []string
-		if p.ClickUpListID == "" {
-			missing = append(missing, "clickup_list_id")
-		}
-		if p.GitHubOwner == "" {
-			missing = append(missing, "github_owner")
-		}
-		if p.GitHubRepo == "" {
-			missing = append(missing, "github_repo")
-		}
-		if len(missing) > 0 {
-			return nil, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
-		}
-
-		workflowFile := p.GitHubWorkflowFile
-		if workflowFile == "" {
-			workflowFile = defaultWorkflowFile
-		}
-
-		specOutput, err := resolveSpecOutput(p.SpecOutput)
+		project, err := buildProjectConfig(i, p)
 		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
+			skipped = append(skipped, err)
+			continue
 		}
-
-		sm, err := resolveStatusMapping(p.StatusMapping)
-		if err != nil {
-			return nil, fmt.Errorf("project[%d] (%s/%s): invalid status_mapping: %w", i, p.GitHubOwner, p.GitHubRepo, err)
-		}
-
-		projects[i] = ProjectConfig{
-			ClickUpListID:      p.ClickUpListID,
-			GitHubOwner:        p.GitHubOwner,
-			GitHubRepo:         p.GitHubRepo,
-			GitHubWorkflowFile: workflowFile,
-			StatusMapping:      sm,
-			SpecOutput:         specOutput,
-		}
+		projects = append(projects, project)
 	}
 
-	return projects, nil
+	if len(projects) == 0 {
+		return nil, skipped, fmt.Errorf("no valid projects found in projects file")
+	}
+
+	return projects, skipped, nil
+}
+
+// buildProjectConfig は rawProjectConfig をバリデートして ProjectConfig を返す。
+// バリデーションエラーの場合はエラーを返す。
+func buildProjectConfig(i int, p rawProjectConfig) (ProjectConfig, error) {
+	var missing []string
+	if p.ClickUpListID == "" {
+		missing = append(missing, "clickup_list_id")
+	}
+	if p.GitHubOwner == "" {
+		missing = append(missing, "github_owner")
+	}
+	if p.GitHubRepo == "" {
+		missing = append(missing, "github_repo")
+	}
+	if len(missing) > 0 {
+		return ProjectConfig{}, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
+	}
+
+	workflowFile := p.GitHubWorkflowFile
+	if workflowFile == "" {
+		workflowFile = defaultWorkflowFile
+	}
+
+	specOutput, err := resolveSpecOutput(p.SpecOutput)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
+	}
+
+	sm, err := resolveStatusMapping(p.StatusMapping)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("project[%d] (%s/%s): invalid status_mapping: %w", i, p.GitHubOwner, p.GitHubRepo, err)
+	}
+
+	return ProjectConfig{
+		ClickUpListID:      p.ClickUpListID,
+		GitHubOwner:        p.GitHubOwner,
+		GitHubRepo:         p.GitHubRepo,
+		GitHubWorkflowFile: workflowFile,
+		StatusMapping:      sm,
+		SpecOutput:         specOutput,
+	}, nil
 }
 
 // resolveSpecOutput は spec_output フィールドのデフォルト補完とバリデーションを行う

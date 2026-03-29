@@ -268,7 +268,7 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 
 		// PR Review ステータスかつ PRChecker が有効な場合、マージ状態を確認する。
 		// このブロックは下流の IsTerminalStatus / IsProcessingStatus 判定を完全にバイパスする。
-		// prChecker == nil の場合は従来通り「処理中でも終端でもない → release」パスを通る。
+		// prChecker == nil の場合は「処理中でも終端でもない → reconciliation_release」パスへ移行する。
 		if o.prChecker != nil && task.Status == o.statusMapping.PRReview {
 			merged, err := o.prChecker.IsPRMerged(ctx, taskID)
 			if err != nil {
@@ -292,7 +292,7 @@ func (o *Orchestrator) reconcile(ctx context.Context) {
 
 		// Spec Review ステータスかつ PRChecker が有効な場合、SPEC PR のマージ状態を確認する。
 		// SPEC PR がマージされていれば "ready for code" へ遷移する。
-		// prChecker == nil の場合は従来通り「処理中でも終端でもない → release」パスを通る。
+		// prChecker == nil の場合は「処理中でも終端でもない → reconciliation_release」パスへ移行する。
 		if o.prChecker != nil && task.Status == o.statusMapping.SpecReview {
 			merged, err := o.prChecker.IsSpecPRMerged(ctx, taskID)
 			if err != nil {

@@ -186,12 +186,13 @@ func TestIsPRMerged_InvalidJSON(t *testing.T) {
 
 func TestIsSpecPRMerged(t *testing.T) {
 	tests := []struct {
-		name       string
-		statusCode int
-		body       string
-		want       bool
-		wantErr    bool
-		wantHead   string
+		name        string
+		statusCode  int
+		body        string
+		closeServer bool
+		want        bool
+		wantErr     bool
+		wantHead    string
 	}{
 		{
 			name:       "マージ済み SPEC PR が存在する",
@@ -214,6 +215,19 @@ func TestIsSpecPRMerged(t *testing.T) {
 			want:       false,
 			wantHead:   "test-owner:spec/clickup-task123",
 		},
+		{
+			name:       "GitHub API エラー（500）",
+			statusCode: http.StatusInternalServerError,
+			body:       `{"message":"Internal Server Error"}`,
+			want:       false,
+			wantErr:    true,
+		},
+		{
+			name:        "ネットワークエラー",
+			closeServer: true,
+			want:        false,
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -227,13 +241,18 @@ func TestIsSpecPRMerged(t *testing.T) {
 					_, _ = w.Write([]byte(tt.body))
 				}
 			}))
-			defer server.Close()
 
 			c := NewPRChecker(NewPATAuthenticator("test-token"), "test-owner", "test-repo")
 			c.httpClient = server.Client()
 			c.httpClient.Transport = &rewriteTransport{
 				base:    http.DefaultTransport,
 				baseURL: server.URL,
+			}
+
+			if tt.closeServer {
+				server.Close()
+			} else {
+				defer server.Close()
 			}
 
 			got, err := c.IsSpecPRMerged(context.Background(), "task123")
@@ -253,11 +272,25 @@ func TestIsSpecPRMerged(t *testing.T) {
 				t.Errorf("IsSpecPRMerged() = %v, want %v", got, tt.want)
 			}
 
+			if tt.closeServer {
+				return
+			}
+
+			// 正常ケースでリクエスト検証
 			if capturedReq == nil {
 				t.Fatal("expected request to be captured")
 			}
+			if capturedReq.Method != http.MethodGet {
+				t.Errorf("method = %s, want GET", capturedReq.Method)
+			}
 			if got := capturedReq.URL.Query().Get("head"); got != tt.wantHead {
 				t.Errorf("head param = %s, want %s", got, tt.wantHead)
+			}
+			if got := capturedReq.URL.Query().Get("state"); got != "all" {
+				t.Errorf("state param = %s, want all", got)
+			}
+			if got := capturedReq.Header.Get("Authorization"); got != "Bearer test-token" {
+				t.Errorf("Authorization = %s, want Bearer test-token", got)
 			}
 		})
 	}

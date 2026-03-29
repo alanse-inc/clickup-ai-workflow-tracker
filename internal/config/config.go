@@ -22,6 +22,7 @@ type Config struct {
 	GitHubAppInstallationID int64
 	GitHubAppPrivateKey     string
 	Projects                []ProjectConfig
+	SkippedProjectErrors    []error
 }
 
 func Load() (*Config, error) {
@@ -42,11 +43,12 @@ func Load() (*Config, error) {
 	if projectsFilePath == "" {
 		projectsFilePath = "projects.yaml"
 	}
-	projects, err := loadProjects(projectsFilePath)
+	projects, skipped, err := loadProjects(projectsFilePath)
 	if err != nil {
 		return nil, err
 	}
 	cfg.Projects = projects
+	cfg.SkippedProjectErrors = skipped
 
 	return cfg, nil
 }

@@ -29,6 +29,9 @@ func main() {
 		slog.Error("config_validation_failed", "error", err)
 		os.Exit(1)
 	}
+	for _, skippedErr := range cfg.SkippedProjectErrors {
+		slog.Error("project_skipped", "error", skippedErr)
+	}
 
 	var githubAuth gh.Authenticator
 	switch cfg.AuthMode {
@@ -120,21 +123,23 @@ type projectInstances struct {
 	pingers  []health.ProjectPingers
 }
 
+// initProjects はプロジェクトのステータス検証を行い、正常なプロジェクトのみでインスタンスを構築する。
+// 検証に失敗したプロジェクトはスキップし、正常なプロジェクトのみで稼働を継続する。
 func initProjects(cfg *config.Config, githubAuth gh.Authenticator, logger *slog.Logger) (*projectInstances, error) {
-	n := len(cfg.Projects)
-	orchs := make([]*orchestrator.Orchestrator, n)
-	limiters := make([]*orchestrator.ConcurrencyLimiter, n)
-	pingers := make([]health.ProjectPingers, n)
+	var orchs []*orchestrator.Orchestrator
+	var limiters []*orchestrator.ConcurrencyLimiter
+	var pingers []health.ProjectPingers
 
-	for i, proj := range cfg.Projects {
+	for _, proj := range cfg.Projects {
 		client := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
 		if err := validateStatuses(client, proj.StatusMapping); err != nil {
-			return nil, fmt.Errorf("project %s/%s: %w", proj.GitHubOwner, proj.GitHubRepo, err)
+			slog.Error("project_skipped", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
+			continue
 		}
 
 		dispatcher := gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
 		prChecker := gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
-		limiters[i] = orchestrator.NewConcurrencyLimiter(proj.MaxConcurrentTasks)
+		limiter := orchestrator.NewConcurrencyLimiter(proj.MaxConcurrentTasks)
 
 		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
 		orchCfg := orchestrator.Config{
@@ -143,13 +148,17 @@ func initProjects(cfg *config.Config, githubAuth gh.Authenticator, logger *slog.
 			ShutdownTimeout: time.Duration(proj.ShutdownTimeoutMS) * time.Millisecond,
 			SpecOutput:      proj.SpecOutput,
 		}
-		orchs[i] = orchestrator.New(client, dispatcher, orchCfg, logger.With("project", projectLabel), limiters[i], projectLabel, prChecker)
-
-		pingers[i] = health.ProjectPingers{
+		orchs = append(orchs, orchestrator.New(client, dispatcher, orchCfg, logger.With("project", projectLabel), limiter, projectLabel, prChecker))
+		limiters = append(limiters, limiter)
+		pingers = append(pingers, health.ProjectPingers{
 			Name:    projectLabel,
 			ClickUp: client,
 			GitHub:  dispatcher,
-		}
+		})
+	}
+
+	if len(orchs) == 0 {
+		return nil, fmt.Errorf("no valid projects after status validation")
 	}
 
 	return &projectInstances{orchs: orchs, limiters: limiters, pingers: pingers}, nil

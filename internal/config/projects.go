@@ -54,34 +54,42 @@ type projectsFile struct {
 	Projects []rawProjectConfig `yaml:"projects"`
 }
 
-func loadProjects(path string) ([]ProjectConfig, error) {
+func loadProjects(path string) ([]ProjectConfig, []error, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // パスは環境変数 PROJECTS_FILE またはデフォルト値で制御される
 	if err != nil {
-		return nil, fmt.Errorf("reading projects file: %w", err)
+		return nil, nil, fmt.Errorf("reading projects file: %w", err)
 	}
 
 	var pf projectsFile
 	if err := yaml.Unmarshal(data, &pf); err != nil {
-		return nil, fmt.Errorf("parsing projects file: %w", err)
+		return nil, nil, fmt.Errorf("parsing projects file: %w", err)
 	}
 
 	if len(pf.Projects) == 0 {
-		return nil, fmt.Errorf("projects file must contain at least one project")
+		return nil, nil, fmt.Errorf("projects file must contain at least one project")
 	}
 
-	projects := make([]ProjectConfig, len(pf.Projects))
+	var projects []ProjectConfig
+	var skipped []error
 	for i, p := range pf.Projects {
-		pc, err := convertProject(p)
+		project, err := buildProjectConfig(i, p)
 		if err != nil {
-			return nil, fmt.Errorf("project[%d]: %w", i, err)
+			skipped = append(skipped, err)
+			continue
 		}
-		projects[i] = pc
+		projects = append(projects, project)
 	}
 
-	return projects, nil
+	if len(projects) == 0 {
+		return nil, skipped, fmt.Errorf("no valid projects found in projects file")
+	}
+
+	return projects, skipped, nil
 }
 
-func convertProject(p rawProjectConfig) (ProjectConfig, error) {
+// buildProjectConfig は rawProjectConfig をバリデートして ProjectConfig を返す。
+// バリデーションエラーの場合はエラーを返す。
+func buildProjectConfig(i int, p rawProjectConfig) (ProjectConfig, error) {
 	var missing []string
 	if p.ClickUpListID == "" {
 		missing = append(missing, "clickup_list_id")
@@ -93,10 +101,10 @@ func convertProject(p rawProjectConfig) (ProjectConfig, error) {
 		missing = append(missing, "github_repo")
 	}
 	if len(missing) > 0 {
-		return ProjectConfig{}, fmt.Errorf("missing required fields: %s", strings.Join(missing, ", "))
+		return ProjectConfig{}, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
 	}
 
-	label := p.GitHubOwner + "/" + p.GitHubRepo
+	label := fmt.Sprintf("project[%d] (%s/%s)", i, p.GitHubOwner, p.GitHubRepo)
 
 	workflowFile := p.GitHubWorkflowFile
 	if workflowFile == "" {
@@ -105,27 +113,27 @@ func convertProject(p rawProjectConfig) (ProjectConfig, error) {
 
 	specOutput, err := resolveSpecOutput(p.SpecOutput)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	sm, err := resolveStatusMapping(p.StatusMapping)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("(%s): invalid status_mapping: %w", label, err)
+		return ProjectConfig{}, fmt.Errorf("%s: invalid status_mapping: %w", label, err)
 	}
 
 	pollIntervalMS, err := resolvePollIntervalMS(p.PollIntervalMS)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	maxConcurrentTasks, err := resolveMaxConcurrentTasks(p.MaxConcurrentTasks)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	shutdownTimeoutMS, err := resolveShutdownTimeoutMS(p.ShutdownTimeoutMS)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("(%s): %w", label, err)
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	return ProjectConfig{

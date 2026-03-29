@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.4.0...v1.5.0) (2026-03-29)
+
+
+### Features
+
+* migrate POLL_INTERVAL_MS/MAX_CONCURRENT_TASKS/SHUTDOWN_TIMEOUT_MS to projects.yaml ([#92](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/92)) ([739e346](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/739e346bf58dc9d9ee6b01cd3a23f3413798c4ba))
+* SPEC PR マージ時に自動で READY FOR CODE へステータス遷移 ([#90](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/90)) ([2b10c01](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/2b10c017f51e05cb36bed506bb357b575217c0a7))
+* プロジェクト設定の部分的エラー耐性 - 不正な設定をスキップして稼働継続 ([#91](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/91)) ([cbfefc7](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/cbfefc703f15203b86d27b2dad58fbb06719bd64))
+
+
+### Bug Fixes
+
+* repo モードの SPEC PR 存在確認と PR チェッカーのエラー伝播を修正 ([#94](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/94)) ([c9afbff](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/c9afbff43fa082ea112835f493cfb53f02016b76))
+
 ## [1.4.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.3.0...v1.4.0) (2026-03-29)
 
 

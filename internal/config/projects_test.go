@@ -101,13 +101,12 @@ func TestLoadProjects_SpecOutput(t *testing.T) {
 
 func TestLoadProjects_PartialSkip(t *testing.T) {
 	tests := []struct {
-		name         string
-		yaml         string
-		wantErr      bool
-		errContains  string
-		wantLen      int
-		wantSkipped  int
-		checkProject func(t *testing.T, projects []ProjectConfig)
+		name        string
+		yaml        string
+		wantErr     bool
+		errContains string
+		wantSkipped int
+		wantListIDs []string
 	}{
 		{
 			name: "invalid second project is skipped, first project is returned",
@@ -119,13 +118,8 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
     github_owner: "org"
     github_repo: ""
 `,
-			wantLen:     1,
 			wantSkipped: 1,
-			checkProject: func(t *testing.T, projects []ProjectConfig) {
-				if projects[0].ClickUpListID != "list-1" {
-					t.Errorf("ClickUpListID = %q, want %q", projects[0].ClickUpListID, "list-1")
-				}
-			},
+			wantListIDs: []string{"list-1"},
 		},
 		{
 			name: "invalid first project is skipped, second project is returned",
@@ -137,13 +131,8 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
     github_owner: "org"
     github_repo: "repo-b"
 `,
-			wantLen:     1,
 			wantSkipped: 1,
-			checkProject: func(t *testing.T, projects []ProjectConfig) {
-				if projects[0].ClickUpListID != "list-2" {
-					t.Errorf("ClickUpListID = %q, want %q", projects[0].ClickUpListID, "list-2")
-				}
-			},
+			wantListIDs: []string{"list-2"},
 		},
 		{
 			name: "invalid spec_output project is skipped, valid project is returned",
@@ -156,13 +145,8 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
     github_owner: "org"
     github_repo: "repo-b"
 `,
-			wantLen:     1,
 			wantSkipped: 1,
-			checkProject: func(t *testing.T, projects []ProjectConfig) {
-				if projects[0].ClickUpListID != "list-2" {
-					t.Errorf("ClickUpListID = %q, want %q", projects[0].ClickUpListID, "list-2")
-				}
-			},
+			wantListIDs: []string{"list-2"},
 		},
 		{
 			name: "project with duplicate status_mapping is skipped, valid project remains",
@@ -176,13 +160,8 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
     github_owner: "org"
     github_repo: "repo-b"
 `,
-			wantLen:     1,
 			wantSkipped: 1,
-			checkProject: func(t *testing.T, projects []ProjectConfig) {
-				if projects[0].ClickUpListID != "list-2" {
-					t.Errorf("ClickUpListID = %q, want %q", projects[0].ClickUpListID, "list-2")
-				}
-			},
+			wantListIDs: []string{"list-2"},
 		},
 		{
 			name: "all projects invalid returns error",
@@ -208,16 +187,8 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
     github_owner: "org"
     github_repo: "repo-c"
 `,
-			wantLen:     2,
 			wantSkipped: 1,
-			checkProject: func(t *testing.T, projects []ProjectConfig) {
-				if projects[0].ClickUpListID != "list-1" {
-					t.Errorf("projects[0].ClickUpListID = %q, want %q", projects[0].ClickUpListID, "list-1")
-				}
-				if projects[1].ClickUpListID != "list-3" {
-					t.Errorf("projects[1].ClickUpListID = %q, want %q", projects[1].ClickUpListID, "list-3")
-				}
-			},
+			wantListIDs: []string{"list-1", "list-3"},
 		},
 	}
 
@@ -244,16 +215,18 @@ func TestLoadProjects_PartialSkip(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if len(projects) != tt.wantLen {
-				t.Fatalf("len(projects) = %d, want %d", len(projects), tt.wantLen)
+			if len(projects) != len(tt.wantListIDs) {
+				t.Fatalf("len(projects) = %d, want %d", len(projects), len(tt.wantListIDs))
 			}
 
 			if len(skipped) != tt.wantSkipped {
 				t.Errorf("len(skipped) = %d, want %d", len(skipped), tt.wantSkipped)
 			}
 
-			if tt.checkProject != nil {
-				tt.checkProject(t, projects)
+			for i, wantID := range tt.wantListIDs {
+				if projects[i].ClickUpListID != wantID {
+					t.Errorf("projects[%d].ClickUpListID = %q, want %q", i, projects[i].ClickUpListID, wantID)
+				}
 			}
 		})
 	}

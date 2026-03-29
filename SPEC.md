@@ -219,9 +219,6 @@ Idea Draft -> Ready for Code -> Implementing -> PR Review -> CLOSED
 | `GITHUB_APP_ID` | Yes (*1) | GitHub App ID |
 | `GITHUB_APP_INSTALLATION_ID` | Yes (*1) | GitHub App Installation ID |
 | `GITHUB_APP_PRIVATE_KEY` | Yes (*1) | GitHub App Private Key (base64 エンコードした PEM。macOS: `base64 -i key.pem | tr -d '\n'` / Linux: `base64 -w 0 < key.pem`) |
-| `POLL_INTERVAL_MS` | No | ポーリング間隔ミリ秒 (default: `10000`) |
-| `MAX_CONCURRENT_TASKS` | No | 並行タスク数上限 (default: `0` = 無制限) |
-| `SHUTDOWN_TIMEOUT_MS` | No | graceful shutdown タイムアウト（ミリ秒）(default: `30000`) |
 | `PROJECTS_FILE` | No | プロジェクト設定ファイルのパス (default: `projects.yaml`) |
 *1: `GITHUB_PAT` と `GITHUB_APP_*` は排他。いずれか一方を設定する。
 
@@ -244,6 +241,9 @@ projects:
     github_owner: "org"
     github_repo: "repo-a"
     github_workflow_file: "agent.yaml"  # optional, default: agent.yaml
+    poll_interval_ms: 10000             # optional, default: 10000
+    max_concurrent_tasks: 0             # optional, default: 0 (unlimited)
+    shutdown_timeout_ms: 30000          # optional, default: 30000
     spec_output: "clickup"              # optional: "clickup" (default) or "repo"
     status_mapping:                     # optional, per-project status name override
       ready_for_spec: "ready for spec"
@@ -256,10 +256,10 @@ projects:
   - clickup_list_id: "list_2"
     github_owner: "org"
     github_repo: "repo-b"
-    # status_mapping を省略するとデフォルト値が使われる
+    # poll_interval_ms, max_concurrent_tasks, shutdown_timeout_ms, status_mapping を省略するとデフォルト値が使われる
 ```
 
-プロジェクトごとに独立した goroutine でポーリングを実行する。`MAX_CONCURRENT_TASKS` は全プロジェクト合算のグローバル上限として機能する。
+プロジェクトごとに独立した goroutine でポーリングを実行する。`max_concurrent_tasks` はプロジェクトごとに独立した並行タスク数上限として機能する（`0` = 無制限）。
 
 各プロジェクトは `status_mapping` セクションで ClickUp ステータス名をカスタマイズできる。省略したフィールドはデフォルト値（Section 5.1 のステータス名を小文字化したもの）が使われる。
 

@@ -46,40 +46,10 @@ func main() {
 		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
 	}
 
-	// 全プロジェクトのステータス検証を先に完了する。
-	// 検証に失敗したプロジェクトはスキップし、正常なプロジェクトのみで稼働を継続する。
-	validProjects, clickupClients := validateProjects(cfg.ClickUpAPIToken, cfg.Projects)
-	if len(validProjects) == 0 {
-		slog.Error("no_valid_projects", "error", "all projects failed status validation")
+	pi, err := initProjects(cfg, githubAuth, logger)
+	if err != nil {
+		slog.Error("project_init_failed", "error", err)
 		os.Exit(1)
-	}
-	cfg.Projects = validProjects
-
-	// 全プロジェクトで共有するグローバル並行数リミッタ
-	limiter := orchestrator.NewConcurrencyLimiter(cfg.MaxConcurrentTasks)
-
-	dispatchers := make([]*gh.Dispatcher, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		dispatchers[i] = gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
-	}
-
-	prCheckers := make([]*gh.GitHubPRChecker, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		prCheckers[i] = gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
-	}
-
-	// オーケストレータをあらかじめ生成し、/status ハンドラに渡す
-	orchs := make([]*orchestrator.Orchestrator, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
-		projectLogger := logger.With("project", projectLabel)
-		orchCfg := orchestrator.Config{
-			PollInterval:    time.Duration(cfg.PollIntervalMS) * time.Millisecond,
-			StatusMapping:   proj.StatusMapping,
-			ShutdownTimeout: time.Duration(cfg.ShutdownTimeoutMS) * time.Millisecond,
-			SpecOutput:      proj.SpecOutput,
-		}
-		orchs[i] = orchestrator.New(clickupClients[i], dispatchers[i], orchCfg, projectLogger, limiter, projectLabel, prCheckers[i])
 	}
 
 	port := os.Getenv("PORT")
@@ -87,20 +57,14 @@ func main() {
 		port = "8080"
 	}
 	mux := http.NewServeMux()
-	pingers := make([]health.ProjectPingers, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		pingers[i] = health.ProjectPingers{
-			Name:    proj.GitHubOwner + "/" + proj.GitHubRepo,
-			ClickUp: clickupClients[i],
-			GitHub:  dispatchers[i],
-		}
-	}
-	statusProviders := make([]status.StatusProvider, len(orchs))
-	for i, o := range orchs {
+	statusProviders := make([]status.StatusProvider, len(pi.orchs))
+	limiterStatuses := make([]status.LimiterStatus, len(pi.orchs))
+	for i, o := range pi.orchs {
 		statusProviders[i] = o
+		limiterStatuses[i] = pi.limiters[i]
 	}
-	mux.Handle("GET /health", health.NewHandler(pingers))
-	mux.Handle("GET /status", status.NewHandler(limiter, statusProviders))
+	mux.Handle("GET /health", health.NewHandler(pi.pingers))
+	mux.Handle("GET /status", status.NewHandler(limiterStatuses, statusProviders))
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
@@ -130,7 +94,8 @@ func main() {
 	var wg sync.WaitGroup
 	for i, proj := range cfg.Projects {
 		slog.InfoContext(ctx, "service_started",
-			"poll_interval_ms", cfg.PollIntervalMS,
+			"poll_interval_ms", proj.PollIntervalMS,
+			"shutdown_timeout_ms", proj.ShutdownTimeoutMS,
 			"clickup_list_id", proj.ClickUpListID,
 			"github_repo", proj.GitHubOwner+"/"+proj.GitHubRepo,
 		)
@@ -139,7 +104,7 @@ func main() {
 		go func(o *orchestrator.Orchestrator) {
 			defer wg.Done()
 			o.Run(ctx)
-		}(orchs[i])
+		}(pi.orchs[i])
 	}
 
 	select {
@@ -153,19 +118,51 @@ func main() {
 	slog.InfoContext(ctx, "service_stopped")
 }
 
-func validateProjects(apiToken string, projects []config.ProjectConfig) ([]config.ProjectConfig, []*clickup.Client) {
-	var valid []config.ProjectConfig
-	var clients []*clickup.Client
-	for _, proj := range projects {
-		client := clickup.NewClient(apiToken, proj.ClickUpListID)
+type projectInstances struct {
+	orchs    []*orchestrator.Orchestrator
+	limiters []*orchestrator.ConcurrencyLimiter
+	pingers  []health.ProjectPingers
+}
+
+// initProjects はプロジェクトのステータス検証を行い、正常なプロジェクトのみでインスタンスを構築する。
+// 検証に失敗したプロジェクトはスキップし、正常なプロジェクトのみで稼働を継続する。
+func initProjects(cfg *config.Config, githubAuth gh.Authenticator, logger *slog.Logger) (*projectInstances, error) {
+	var orchs []*orchestrator.Orchestrator
+	var limiters []*orchestrator.ConcurrencyLimiter
+	var pingers []health.ProjectPingers
+
+	for _, proj := range cfg.Projects {
+		client := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
 		if err := validateStatuses(client, proj.StatusMapping); err != nil {
 			slog.Error("project_skipped", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
 			continue
 		}
-		valid = append(valid, proj)
-		clients = append(clients, client)
+
+		dispatcher := gh.NewDispatcher(githubAuth, proj.GitHubOwner, proj.GitHubRepo, proj.GitHubWorkflowFile)
+		prChecker := gh.NewPRChecker(githubAuth, proj.GitHubOwner, proj.GitHubRepo)
+		limiter := orchestrator.NewConcurrencyLimiter(proj.MaxConcurrentTasks)
+
+		projectLabel := proj.GitHubOwner + "/" + proj.GitHubRepo
+		orchCfg := orchestrator.Config{
+			PollInterval:    time.Duration(proj.PollIntervalMS) * time.Millisecond,
+			StatusMapping:   proj.StatusMapping,
+			ShutdownTimeout: time.Duration(proj.ShutdownTimeoutMS) * time.Millisecond,
+			SpecOutput:      proj.SpecOutput,
+		}
+		orchs = append(orchs, orchestrator.New(client, dispatcher, orchCfg, logger.With("project", projectLabel), limiter, projectLabel, prChecker))
+		limiters = append(limiters, limiter)
+		pingers = append(pingers, health.ProjectPingers{
+			Name:    projectLabel,
+			ClickUp: client,
+			GitHub:  dispatcher,
+		})
 	}
-	return valid, clients
+
+	if len(orchs) == 0 {
+		return nil, fmt.Errorf("no valid projects after status validation")
+	}
+
+	return &projectInstances{orchs: orchs, limiters: limiters, pingers: pingers}, nil
 }
 
 func validateStatuses(client *clickup.Client, sm clickup.StatusMapping) error {

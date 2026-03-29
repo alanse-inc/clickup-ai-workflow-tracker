@@ -3,6 +3,9 @@ projects:
     github_owner: "your-org"
     github_repo: "your-repo"
     # github_workflow_file: "agent.yaml"  # optional (default: agent.yaml)
+    # poll_interval_ms: 10000             # optional (default: 10000)
+    # max_concurrent_tasks: 0             # optional (default: 0 = unlimited)
+    # shutdown_timeout_ms: 30000          # optional (default: 30000)
     # status_mapping:                     # optional (defaults shown below)
     #   ready_for_spec: "ready for spec"
     #   generating_spec: "generating spec"

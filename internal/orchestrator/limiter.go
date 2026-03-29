@@ -2,7 +2,7 @@ package orchestrator
 
 import "sync"
 
-// ConcurrencyLimiter は複数 Orchestrator 間で共有されるグローバルな並行タスク数カウンタ。
+// ConcurrencyLimiter はプロジェクトごとの並行タスク数カウンタ。
 // maxConcurrent が 0 の場合は上限なし。
 type ConcurrencyLimiter struct {
 	mu            sync.Mutex

@@ -31,25 +31,21 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	retryAt := time.Date(2026, 3, 27, 10, 5, 0, 0, time.UTC)
 
 	tests := []struct {
-		name              string
-		limiter           LimiterStatus
-		providers         []StatusProvider
-		wantActiveTasks   int
-		wantMaxConcurrent int
-		wantProjectCount  int
-		checkProjects     func(t *testing.T, projects []projectStatusJSON)
+		name             string
+		limiters         []LimiterStatus
+		providers        []StatusProvider
+		wantProjectCount int
+		checkProjects    func(t *testing.T, projects []projectStatusJSON)
 	}{
 		{
-			name:              "no active tasks",
-			limiter:           &mockLimiter{active: 0, max: 5},
-			providers:         []StatusProvider{},
-			wantActiveTasks:   0,
-			wantMaxConcurrent: 5,
-			wantProjectCount:  0,
+			name:             "no projects",
+			limiters:         []LimiterStatus{},
+			providers:        []StatusProvider{},
+			wantProjectCount: 0,
 		},
 		{
-			name:    "running and retry tasks",
-			limiter: &mockLimiter{active: 2, max: 5},
+			name:     "running and retry tasks",
+			limiters: []LimiterStatus{&mockLimiter{active: 2, max: 5}},
 			providers: []StatusProvider{
 				&mockStatusProvider{
 					status: orchestrator.OrchestratorStatus{
@@ -63,14 +59,18 @@ func TestHandler_ServeHTTP(t *testing.T) {
 					},
 				},
 			},
-			wantActiveTasks:   2,
-			wantMaxConcurrent: 5,
-			wantProjectCount:  1,
+			wantProjectCount: 1,
 			checkProjects: func(t *testing.T, projects []projectStatusJSON) {
 				t.Helper()
 				p := projects[0]
 				if p.Project != "owner/repo" {
 					t.Errorf("project = %q, want owner/repo", p.Project)
+				}
+				if p.ActiveTasks != 2 {
+					t.Errorf("active_tasks = %d, want 2", p.ActiveTasks)
+				}
+				if p.MaxConcurrentTasks != 5 {
+					t.Errorf("max_concurrent_tasks = %d, want 5", p.MaxConcurrentTasks)
 				}
 				if len(p.RunningTasks) != 1 {
 					t.Fatalf("running_tasks len = %d, want 1", len(p.RunningTasks))
@@ -100,16 +100,32 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 		},
 		{
-			name:              "max_concurrent_tasks 0 (unlimited)",
-			limiter:           &mockLimiter{active: 0, max: 0},
-			providers:         []StatusProvider{},
-			wantActiveTasks:   0,
-			wantMaxConcurrent: 0,
-			wantProjectCount:  0,
+			name:     "max_concurrent_tasks 0 (unlimited)",
+			limiters: []LimiterStatus{&mockLimiter{active: 0, max: 0}},
+			providers: []StatusProvider{
+				&mockStatusProvider{
+					status: orchestrator.OrchestratorStatus{
+						Project: "owner/repo",
+					},
+				},
+			},
+			wantProjectCount: 1,
+			checkProjects: func(t *testing.T, projects []projectStatusJSON) {
+				t.Helper()
+				if projects[0].ActiveTasks != 0 {
+					t.Errorf("active_tasks = %d, want 0", projects[0].ActiveTasks)
+				}
+				if projects[0].MaxConcurrentTasks != 0 {
+					t.Errorf("max_concurrent_tasks = %d, want 0", projects[0].MaxConcurrentTasks)
+				}
+			},
 		},
 		{
-			name:    "multiple projects",
-			limiter: &mockLimiter{active: 1, max: 3},
+			name: "multiple projects with different limits",
+			limiters: []LimiterStatus{
+				&mockLimiter{active: 1, max: 3},
+				&mockLimiter{active: 0, max: 5},
+			},
 			providers: []StatusProvider{
 				&mockStatusProvider{
 					status: orchestrator.OrchestratorStatus{
@@ -126,20 +142,28 @@ func TestHandler_ServeHTTP(t *testing.T) {
 					},
 				},
 			},
-			wantActiveTasks:   1,
-			wantMaxConcurrent: 3,
-			wantProjectCount:  2,
+			wantProjectCount: 2,
 			checkProjects: func(t *testing.T, projects []projectStatusJSON) {
 				t.Helper()
-				names := map[string]bool{}
 				for _, p := range projects {
-					names[p.Project] = true
-				}
-				if !names["owner/repo-a"] {
-					t.Error("owner/repo-a not found in projects")
-				}
-				if !names["owner/repo-b"] {
-					t.Error("owner/repo-b not found in projects")
+					switch p.Project {
+					case "owner/repo-a":
+						if p.ActiveTasks != 1 {
+							t.Errorf("repo-a active_tasks = %d, want 1", p.ActiveTasks)
+						}
+						if p.MaxConcurrentTasks != 3 {
+							t.Errorf("repo-a max_concurrent_tasks = %d, want 3", p.MaxConcurrentTasks)
+						}
+					case "owner/repo-b":
+						if p.ActiveTasks != 0 {
+							t.Errorf("repo-b active_tasks = %d, want 0", p.ActiveTasks)
+						}
+						if p.MaxConcurrentTasks != 5 {
+							t.Errorf("repo-b max_concurrent_tasks = %d, want 5", p.MaxConcurrentTasks)
+						}
+					default:
+						t.Errorf("unexpected project %q", p.Project)
+					}
 				}
 			},
 		},
@@ -147,7 +171,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewHandler(tt.limiter, tt.providers)
+			h := NewHandler(tt.limiters, tt.providers)
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/status", nil)
 			rec := httptest.NewRecorder()
@@ -166,12 +190,6 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				t.Fatalf("failed to decode response: %v", err)
 			}
 
-			if resp.ActiveTasks != tt.wantActiveTasks {
-				t.Errorf("active_tasks = %d, want %d", resp.ActiveTasks, tt.wantActiveTasks)
-			}
-			if resp.MaxConcurrentTasks != tt.wantMaxConcurrent {
-				t.Errorf("max_concurrent_tasks = %d, want %d", resp.MaxConcurrentTasks, tt.wantMaxConcurrent)
-			}
 			if len(resp.Projects) != tt.wantProjectCount {
 				t.Errorf("projects len = %d, want %d", len(resp.Projects), tt.wantProjectCount)
 			}

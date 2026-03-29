@@ -19,6 +19,9 @@ type ProjectConfig struct {
 	GitHubWorkflowFile string
 	StatusMapping      clickup.StatusMapping
 	SpecOutput         string // "clickup" (default) or "repo"
+	PollIntervalMS     int
+	MaxConcurrentTasks int
+	ShutdownTimeoutMS  int
 }
 
 // rawStatusMappingConfig は YAML パース用の内部構造体。
@@ -41,7 +44,10 @@ type rawProjectConfig struct {
 	GitHubRepo         string                  `yaml:"github_repo"`
 	GitHubWorkflowFile string                  `yaml:"github_workflow_file"`
 	StatusMapping      *rawStatusMappingConfig `yaml:"status_mapping"`
-	SpecOutput         string                  `yaml:"spec_output"` // "clickup" (default) or "repo"
+	SpecOutput         string                  `yaml:"spec_output"`          // "clickup" (default) or "repo"
+	PollIntervalMS     *int                    `yaml:"poll_interval_ms"`     // nil = use default
+	MaxConcurrentTasks *int                    `yaml:"max_concurrent_tasks"` // nil = use default
+	ShutdownTimeoutMS  *int                    `yaml:"shutdown_timeout_ms"`  // nil = use default
 }
 
 type projectsFile struct {
@@ -98,6 +104,8 @@ func buildProjectConfig(i int, p rawProjectConfig) (ProjectConfig, error) {
 		return ProjectConfig{}, fmt.Errorf("project[%d]: missing required fields: %s", i, strings.Join(missing, ", "))
 	}
 
+	label := fmt.Sprintf("project[%d] (%s/%s)", i, p.GitHubOwner, p.GitHubRepo)
+
 	workflowFile := p.GitHubWorkflowFile
 	if workflowFile == "" {
 		workflowFile = defaultWorkflowFile
@@ -105,12 +113,27 @@ func buildProjectConfig(i int, p rawProjectConfig) (ProjectConfig, error) {
 
 	specOutput, err := resolveSpecOutput(p.SpecOutput)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("project[%d] (%s/%s): %w", i, p.GitHubOwner, p.GitHubRepo, err)
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	sm, err := resolveStatusMapping(p.StatusMapping)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("project[%d] (%s/%s): invalid status_mapping: %w", i, p.GitHubOwner, p.GitHubRepo, err)
+		return ProjectConfig{}, fmt.Errorf("%s: invalid status_mapping: %w", label, err)
+	}
+
+	pollIntervalMS, err := resolvePollIntervalMS(p.PollIntervalMS)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
+	}
+
+	maxConcurrentTasks, err := resolveMaxConcurrentTasks(p.MaxConcurrentTasks)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
+	}
+
+	shutdownTimeoutMS, err := resolveShutdownTimeoutMS(p.ShutdownTimeoutMS)
+	if err != nil {
+		return ProjectConfig{}, fmt.Errorf("%s: %w", label, err)
 	}
 
 	return ProjectConfig{
@@ -120,7 +143,40 @@ func buildProjectConfig(i int, p rawProjectConfig) (ProjectConfig, error) {
 		GitHubWorkflowFile: workflowFile,
 		StatusMapping:      sm,
 		SpecOutput:         specOutput,
+		PollIntervalMS:     pollIntervalMS,
+		MaxConcurrentTasks: maxConcurrentTasks,
+		ShutdownTimeoutMS:  shutdownTimeoutMS,
 	}, nil
+}
+
+func resolvePollIntervalMS(v *int) (int, error) {
+	if v == nil {
+		return DefaultPollIntervalMS, nil
+	}
+	if *v <= 0 {
+		return 0, fmt.Errorf("poll_interval_ms must be positive, got %d", *v)
+	}
+	return *v, nil
+}
+
+func resolveMaxConcurrentTasks(v *int) (int, error) {
+	if v == nil {
+		return DefaultMaxConcurrentTasks, nil
+	}
+	if *v < 0 {
+		return 0, fmt.Errorf("max_concurrent_tasks must be non-negative, got %d", *v)
+	}
+	return *v, nil
+}
+
+func resolveShutdownTimeoutMS(v *int) (int, error) {
+	if v == nil {
+		return DefaultShutdownTimeoutMS, nil
+	}
+	if *v <= 0 {
+		return 0, fmt.Errorf("shutdown_timeout_ms must be positive, got %d", *v)
+	}
+	return *v, nil
 }
 
 // resolveSpecOutput は spec_output フィールドのデフォルト補完とバリデーションを行う

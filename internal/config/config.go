@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+const (
+	DefaultPollIntervalMS     = 10000
+	DefaultMaxConcurrentTasks = 0 // 0 = unlimited
+	DefaultShutdownTimeoutMS  = 30000
+)
+
 type Config struct {
 	ClickUpAPIToken         string
 	GitHubPAT               string
@@ -15,18 +21,12 @@ type Config struct {
 	GitHubAppID             int64
 	GitHubAppInstallationID int64
 	GitHubAppPrivateKey     string
-	PollIntervalMS          int // default: 10000
-	MaxConcurrentTasks      int // default: 0 (unlimited)
-	ShutdownTimeoutMS       int // default: 30000
 	Projects                []ProjectConfig
 	SkippedProjectErrors    []error
 }
 
 func Load() (*Config, error) {
-	cfg := &Config{
-		PollIntervalMS:    10000,
-		ShutdownTimeoutMS: 30000,
-	}
+	cfg := &Config{}
 
 	cfg.ClickUpAPIToken = os.Getenv("CLICKUP_API_TOKEN")
 	if cfg.ClickUpAPIToken == "" {
@@ -35,10 +35,6 @@ func Load() (*Config, error) {
 
 	// GitHub 認証: PAT と App は排他
 	if err := loadGitHubAuth(cfg); err != nil {
-		return nil, err
-	}
-
-	if err := loadIntEnvs(cfg); err != nil {
 		return nil, err
 	}
 
@@ -55,43 +51,6 @@ func Load() (*Config, error) {
 	cfg.SkippedProjectErrors = skipped
 
 	return cfg, nil
-}
-
-func loadIntEnvs(cfg *Config) error {
-	if v := os.Getenv("POLL_INTERVAL_MS"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid POLL_INTERVAL_MS value %q: %w", v, err)
-		}
-		if parsed <= 0 {
-			return fmt.Errorf("POLL_INTERVAL_MS must be positive, got %d", parsed)
-		}
-		cfg.PollIntervalMS = parsed
-	}
-
-	if v := os.Getenv("MAX_CONCURRENT_TASKS"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid MAX_CONCURRENT_TASKS value %q: %w", v, err)
-		}
-		if parsed < 0 {
-			return fmt.Errorf("MAX_CONCURRENT_TASKS must be non-negative, got %d", parsed)
-		}
-		cfg.MaxConcurrentTasks = parsed
-	}
-
-	if v := os.Getenv("SHUTDOWN_TIMEOUT_MS"); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid SHUTDOWN_TIMEOUT_MS value %q: %w", v, err)
-		}
-		if parsed <= 0 {
-			return fmt.Errorf("SHUTDOWN_TIMEOUT_MS must be positive, got %d", parsed)
-		}
-		cfg.ShutdownTimeoutMS = parsed
-	}
-
-	return nil
 }
 
 func loadGitHubAuth(cfg *Config) error {

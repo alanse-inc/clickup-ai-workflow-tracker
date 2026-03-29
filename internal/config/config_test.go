@@ -37,7 +37,7 @@ func clearEnvs(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"CLICKUP_API_TOKEN",
-		"GITHUB_PAT", "POLL_INTERVAL_MS", "SHUTDOWN_TIMEOUT_MS", "MAX_CONCURRENT_TASKS",
+		"GITHUB_PAT",
 		"GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY",
 		"PROJECTS_FILE",
 	} {
@@ -89,8 +89,14 @@ func TestLoad(t *testing.T) {
 				if cfg.Projects[0].GitHubWorkflowFile != "agent.yaml" {
 					t.Errorf("GitHubWorkflowFile = %q, want %q", cfg.Projects[0].GitHubWorkflowFile, "agent.yaml")
 				}
-				if cfg.PollIntervalMS != 10000 {
-					t.Errorf("PollIntervalMS = %d, want %d", cfg.PollIntervalMS, 10000)
+				if cfg.Projects[0].PollIntervalMS != DefaultPollIntervalMS {
+					t.Errorf("PollIntervalMS = %d, want %d", cfg.Projects[0].PollIntervalMS, DefaultPollIntervalMS)
+				}
+				if cfg.Projects[0].MaxConcurrentTasks != DefaultMaxConcurrentTasks {
+					t.Errorf("MaxConcurrentTasks = %d, want %d", cfg.Projects[0].MaxConcurrentTasks, DefaultMaxConcurrentTasks)
+				}
+				if cfg.Projects[0].ShutdownTimeoutMS != DefaultShutdownTimeoutMS {
+					t.Errorf("ShutdownTimeoutMS = %d, want %d", cfg.Projects[0].ShutdownTimeoutMS, DefaultShutdownTimeoutMS)
 				}
 			},
 		},
@@ -109,18 +115,6 @@ func TestLoad(t *testing.T) {
 			check: func(t *testing.T, cfg *Config) {
 				if cfg.Projects[0].GitHubWorkflowFile != "custom.yaml" {
 					t.Errorf("GitHubWorkflowFile = %q, want %q", cfg.Projects[0].GitHubWorkflowFile, "custom.yaml")
-				}
-			},
-		},
-		{
-			name: "custom poll interval",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("POLL_INTERVAL_MS", "5000")
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.PollIntervalMS != 5000 {
-					t.Errorf("PollIntervalMS = %d, want %d", cfg.PollIntervalMS, 5000)
 				}
 			},
 		},
@@ -144,33 +138,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "reading projects file",
-		},
-		{
-			name: "invalid POLL_INTERVAL_MS",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("POLL_INTERVAL_MS", "not-a-number")
-			},
-			wantErr:     true,
-			errContains: "invalid POLL_INTERVAL_MS",
-		},
-		{
-			name: "zero POLL_INTERVAL_MS",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("POLL_INTERVAL_MS", "0")
-			},
-			wantErr:     true,
-			errContains: "POLL_INTERVAL_MS must be positive",
-		},
-		{
-			name: "negative POLL_INTERVAL_MS",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("POLL_INTERVAL_MS", "-100")
-			},
-			wantErr:     true,
-			errContains: "POLL_INTERVAL_MS must be positive",
 		},
 		{
 			name: "default status mapping applied per project",
@@ -300,97 +267,6 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "invalid GITHUB_APP_PRIVATE_KEY",
-		},
-		{
-			name: "MAX_CONCURRENT_TASKS default is 0",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.MaxConcurrentTasks != 0 {
-					t.Errorf("MaxConcurrentTasks = %d, want 0", cfg.MaxConcurrentTasks)
-				}
-			},
-		},
-		{
-			name: "MAX_CONCURRENT_TASKS set to positive value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("MAX_CONCURRENT_TASKS", "5")
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.MaxConcurrentTasks != 5 {
-					t.Errorf("MaxConcurrentTasks = %d, want 5", cfg.MaxConcurrentTasks)
-				}
-			},
-		},
-		{
-			name: "MAX_CONCURRENT_TASKS invalid value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("MAX_CONCURRENT_TASKS", "not-a-number")
-			},
-			wantErr:     true,
-			errContains: "invalid MAX_CONCURRENT_TASKS",
-		},
-		{
-			name: "MAX_CONCURRENT_TASKS negative value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("MAX_CONCURRENT_TASKS", "-1")
-			},
-			wantErr:     true,
-			errContains: "MAX_CONCURRENT_TASKS must be non-negative",
-		},
-		{
-			name: "SHUTDOWN_TIMEOUT_MS default is 30000",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.ShutdownTimeoutMS != 30000 {
-					t.Errorf("ShutdownTimeoutMS = %d, want 30000", cfg.ShutdownTimeoutMS)
-				}
-			},
-		},
-		{
-			name: "SHUTDOWN_TIMEOUT_MS set to positive value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("SHUTDOWN_TIMEOUT_MS", "5000")
-			},
-			check: func(t *testing.T, cfg *Config) {
-				if cfg.ShutdownTimeoutMS != 5000 {
-					t.Errorf("ShutdownTimeoutMS = %d, want 5000", cfg.ShutdownTimeoutMS)
-				}
-			},
-		},
-		{
-			name: "SHUTDOWN_TIMEOUT_MS invalid value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("SHUTDOWN_TIMEOUT_MS", "not-a-number")
-			},
-			wantErr:     true,
-			errContains: "invalid SHUTDOWN_TIMEOUT_MS",
-		},
-		{
-			name: "SHUTDOWN_TIMEOUT_MS zero value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("SHUTDOWN_TIMEOUT_MS", "0")
-			},
-			wantErr:     true,
-			errContains: "SHUTDOWN_TIMEOUT_MS must be positive",
-		},
-		{
-			name: "SHUTDOWN_TIMEOUT_MS negative value",
-			setup: func(t *testing.T) {
-				setRequiredEnvs(t)
-				t.Setenv("SHUTDOWN_TIMEOUT_MS", "-1")
-			},
-			wantErr:     true,
-			errContains: "SHUTDOWN_TIMEOUT_MS must be positive",
 		},
 	}
 

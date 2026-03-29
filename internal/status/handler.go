@@ -21,13 +21,13 @@ type LimiterStatus interface {
 
 // Handler は /status エンドポイントのハンドラ
 type Handler struct {
-	limiter   LimiterStatus
+	limiters  []LimiterStatus
 	providers []StatusProvider
 }
 
 // NewHandler は新しい Handler を生成する
-func NewHandler(limiter LimiterStatus, providers []StatusProvider) *Handler {
-	return &Handler{limiter: limiter, providers: providers}
+func NewHandler(limiters []LimiterStatus, providers []StatusProvider) *Handler {
+	return &Handler{limiters: limiters, providers: providers}
 }
 
 type runningTaskJSON struct {
@@ -43,20 +43,20 @@ type retryPendingJSON struct {
 }
 
 type projectStatusJSON struct {
-	Project      string             `json:"project"`
-	RunningTasks []runningTaskJSON  `json:"running_tasks"`
-	RetryPending []retryPendingJSON `json:"retry_pending"`
+	Project            string             `json:"project"`
+	ActiveTasks        int                `json:"active_tasks"`
+	MaxConcurrentTasks int                `json:"max_concurrent_tasks"`
+	RunningTasks       []runningTaskJSON  `json:"running_tasks"`
+	RetryPending       []retryPendingJSON `json:"retry_pending"`
 }
 
 type statusResponse struct {
-	ActiveTasks        int                 `json:"active_tasks"`
-	MaxConcurrentTasks int                 `json:"max_concurrent_tasks"`
-	Projects           []projectStatusJSON `json:"projects"`
+	Projects []projectStatusJSON `json:"projects"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	projects := make([]projectStatusJSON, 0, len(h.providers))
-	for _, p := range h.providers {
+	for i, p := range h.providers {
 		snap := p.Status()
 
 		running := make([]runningTaskJSON, 0, len(snap.RunningTasks))
@@ -77,23 +77,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 			})
 		}
 
+		var activeTasks, maxConcurrent int
+		if i < len(h.limiters) && h.limiters[i] != nil {
+			activeTasks = h.limiters[i].ActiveCount()
+			maxConcurrent = h.limiters[i].MaxConcurrent()
+		}
+
 		projects = append(projects, projectStatusJSON{
-			Project:      snap.Project,
-			RunningTasks: running,
-			RetryPending: retry,
+			Project:            snap.Project,
+			ActiveTasks:        activeTasks,
+			MaxConcurrentTasks: maxConcurrent,
+			RunningTasks:       running,
+			RetryPending:       retry,
 		})
 	}
 
-	var activeTasks, maxConcurrent int
-	if h.limiter != nil {
-		activeTasks = h.limiter.ActiveCount()
-		maxConcurrent = h.limiter.MaxConcurrent()
-	}
-
 	resp := statusResponse{
-		ActiveTasks:        activeTasks,
-		MaxConcurrentTasks: maxConcurrent,
-		Projects:           projects,
+		Projects: projects,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

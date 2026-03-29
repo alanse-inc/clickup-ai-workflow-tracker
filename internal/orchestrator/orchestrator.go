@@ -86,7 +86,6 @@ type RetryInfo struct {
 
 // New は新しい Orchestrator を返す。
 // limiter が nil の場合は並行数制限なし。
-// 複数 Orchestrator 間で ConcurrencyLimiter を共有することで、グローバルな並行タスク数制限を実現できる。
 // projectLabel は "owner/repo" 形式のプロジェクト識別子で、Status() のレスポンスに含まれる。
 // prChecker が nil の場合は PR マージ自動検知を無効化し、後方互換動作を維持する。
 func New(taskClient TaskClient, dispatcher WorkflowDispatcher, cfg Config, logger *slog.Logger, limiter *ConcurrencyLimiter, projectLabel string, prChecker PRChecker) *Orchestrator {

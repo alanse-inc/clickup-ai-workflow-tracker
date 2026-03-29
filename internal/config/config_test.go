@@ -622,7 +622,7 @@ func TestLoadProjects_FromYAML(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate status values in status_mapping",
+			name: "duplicate status values in status_mapping on only project",
 			yaml: `projects:
   - clickup_list_id: "list-1"
     github_owner: "org"
@@ -631,7 +631,7 @@ func TestLoadProjects_FromYAML(t *testing.T) {
       ready_for_spec: "implementing"
 `,
 			wantErr:     true,
-			errContains: "duplicate status",
+			errContains: "no valid projects",
 		},
 		{
 			name:        "empty projects",
@@ -640,13 +640,13 @@ func TestLoadProjects_FromYAML(t *testing.T) {
 			errContains: "at least one project",
 		},
 		{
-			name: "missing required field",
+			name: "missing required field on only project",
 			yaml: `projects:
   - clickup_list_id: "list-1"
     github_owner: "org"
 `,
 			wantErr:     true,
-			errContains: "github_repo",
+			errContains: "no valid projects",
 		},
 		{
 			name:        "invalid yaml",

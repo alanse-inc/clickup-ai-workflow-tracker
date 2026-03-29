@@ -43,15 +43,24 @@ func main() {
 		githubAuth = gh.NewPATAuthenticator(cfg.GitHubPAT)
 	}
 
-	// 全プロジェクトのステータス検証を先に完了する
-	clickupClients := make([]*clickup.Client, len(cfg.Projects))
-	for i, proj := range cfg.Projects {
-		clickupClients[i] = clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
-		if err := validateStatuses(clickupClients[i], proj.StatusMapping); err != nil {
-			slog.Error("status_validation_failed", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
-			os.Exit(1)
+	// 全プロジェクトのステータス検証を先に完了する。
+	// 検証に失敗したプロジェクトはスキップし、正常なプロジェクトのみで稼働を継続する。
+	var validProjects []config.ProjectConfig
+	var clickupClients []*clickup.Client
+	for _, proj := range cfg.Projects {
+		client := clickup.NewClient(cfg.ClickUpAPIToken, proj.ClickUpListID)
+		if err := validateStatuses(client, proj.StatusMapping); err != nil {
+			slog.Error("project_skipped", "error", err, "project", proj.GitHubOwner+"/"+proj.GitHubRepo)
+			continue
 		}
+		validProjects = append(validProjects, proj)
+		clickupClients = append(clickupClients, client)
 	}
+	if len(validProjects) == 0 {
+		slog.Error("no_valid_projects", "error", "all projects failed status validation")
+		os.Exit(1)
+	}
+	cfg.Projects = validProjects
 
 	// 全プロジェクトで共有するグローバル並行数リミッタ
 	limiter := orchestrator.NewConcurrencyLimiter(cfg.MaxConcurrentTasks)

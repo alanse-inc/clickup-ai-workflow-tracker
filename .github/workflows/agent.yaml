@@ -307,7 +307,7 @@ jobs:
           # 規定のブランチ名で検索し、見つからなければタスク ID で本文検索にフォールバック
           PR_URL=$(gh pr list --head "spec/clickup-${TASK_ID}" --json url --jq '.[0].url' 2>/dev/null)
           if [ -z "$PR_URL" ]; then
-            PR_URL=$(gh pr list --search "CU-${TASK_ID} in:body" --json url --jq '.[0].url' 2>/dev/null)
+            PR_URL=$(gh pr list --search "Refs CU-${TASK_ID} in:body" --json url --jq '.[0].url' 2>/dev/null)
           fi
           if [ -n "$PR_URL" ]; then
             curl -fsS --retry 3 --retry-delay 2 --retry-all-errors \

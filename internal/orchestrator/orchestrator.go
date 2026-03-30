@@ -428,10 +428,15 @@ func calcRetryDelay(attempt int) time.Duration {
 
 // addJitter はベース遅延に ±25% のランダム jitter を加える。
 // thundering herd を防ぐため、複数タスクのリトライタイミングを分散させる。
+// 結果は retryMaxDelayMS でクリップされる。
 func addJitter(base time.Duration) time.Duration {
 	// [0.75, 1.25) の範囲でスケーリング
 	factor := 0.75 + rand.Float64()*0.5
-	return time.Duration(float64(base) * factor)
+	result := time.Duration(float64(base) * factor)
+	if max := time.Duration(retryMaxDelayMS) * time.Millisecond; result > max {
+		return max
+	}
+	return result
 }
 
 // scheduleRetry はリトライタイマーを設定する

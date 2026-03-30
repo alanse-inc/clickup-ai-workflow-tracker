@@ -744,6 +744,15 @@ func TestAddJitter(t *testing.T) {
 	if len(results) < 2 {
 		t.Error("addJitter returned the same value for all 10 calls, expected variance")
 	}
+
+	// retryMaxDelayMS を超えないことを確認
+	maxDelay := time.Duration(retryMaxDelayMS) * time.Millisecond
+	for range 100 {
+		got := addJitter(maxDelay)
+		if got > maxDelay {
+			t.Errorf("addJitter(%v) = %v, exceeds max %v", maxDelay, got, maxDelay)
+		}
+	}
 }
 
 func TestHandleRetry(t *testing.T) {
@@ -931,7 +940,7 @@ func TestReconcile_GetTaskTimeout(t *testing.T) {
 		mockTaskClient: mockTaskClient{
 			taskMap: map[string]*clickup.Task{},
 		},
-		hangDuration: 30 * time.Second, // reconcileGetTaskTimeout (10s) より長い
+		hangDuration: 11 * time.Second, // reconcileGetTaskTimeout (10s) より長い
 	}
 	dispatcher := &mockWorkflowDispatcher{}
 	o := New(slowClient, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "", nil)

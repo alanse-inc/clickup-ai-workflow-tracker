@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.5.0...v1.6.0) (2026-03-30)
+
+
+### Features
+
+* リリース時に deployment リポジトリへ自動デプロイトリガー ([#95](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/95)) ([87ca4fc](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/87ca4fcce7e6993fe1e7b75f6e28069abcb81277))
+
 ## [1.5.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.4.0...v1.5.0) (2026-03-29)
 
 

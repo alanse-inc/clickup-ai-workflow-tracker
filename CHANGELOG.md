@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.6.0...v1.6.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* リトライ jitter 追加と reconcile GetTask タイムアウト設定 ([#97](https://github.com/alanse-inc/clickup-ai-orchestrator/issues/97)) ([70c19aa](https://github.com/alanse-inc/clickup-ai-orchestrator/commit/70c19aa5c524ff70828bf66240ca8d357d89fcf2))
+
 ## [1.6.0](https://github.com/alanse-inc/clickup-ai-orchestrator/compare/v1.5.0...v1.6.0) (2026-03-30)
 
 

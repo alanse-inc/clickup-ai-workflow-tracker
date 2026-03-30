@@ -724,6 +724,37 @@ func TestCalcRetryDelay(t *testing.T) {
 	}
 }
 
+func TestAddJitter(t *testing.T) {
+	base := 10 * time.Second
+	minExpected := time.Duration(float64(base) * 0.75)
+	maxExpected := time.Duration(float64(base) * 1.25)
+
+	for range 100 {
+		got := addJitter(base)
+		if got < minExpected || got >= maxExpected {
+			t.Errorf("addJitter(%v) = %v, want in [%v, %v)", base, got, minExpected, maxExpected)
+		}
+	}
+
+	// 全く同じ値にならないことで jitter が機能していることを確認
+	results := make(map[time.Duration]struct{})
+	for range 10 {
+		results[addJitter(base)] = struct{}{}
+	}
+	if len(results) < 2 {
+		t.Error("addJitter returned the same value for all 10 calls, expected variance")
+	}
+
+	// retryMaxDelayMS を超えないことを確認
+	maxDelay := time.Duration(retryMaxDelayMS) * time.Millisecond
+	for range 100 {
+		got := addJitter(maxDelay)
+		if got > maxDelay {
+			t.Errorf("addJitter(%v) = %v, exceeds max %v", maxDelay, got, maxDelay)
+		}
+	}
+}
+
 func TestHandleRetry(t *testing.T) {
 	sm := defaultSM
 	tests := []struct {
@@ -899,6 +930,36 @@ func TestReconcile_LimiterRelease(t *testing.T) {
 				t.Errorf("limiter active = %d, wantLimiterKept = %v", limiter.ActiveCount(), tt.wantLimiterKept)
 			}
 		})
+	}
+}
+
+func TestReconcile_GetTaskTimeout(t *testing.T) {
+	sm := defaultSM
+	// GetTask が長時間ハングするモック
+	slowClient := &hangingTaskClient{
+		mockTaskClient: mockTaskClient{
+			taskMap: map[string]*clickup.Task{},
+		},
+		hangDuration: 11 * time.Second, // reconcileGetTaskTimeout (10s) より長い
+	}
+	dispatcher := &mockWorkflowDispatcher{}
+	o := New(slowClient, dispatcher, Config{PollInterval: time.Second, StatusMapping: sm}, defaultLogger, nil, "", nil)
+
+	o.state.Claim("task-1")
+	o.state.MarkRunning("task-1")
+
+	start := time.Now()
+	o.reconcile(context.Background())
+	elapsed := time.Since(start)
+
+	// タイムアウトにより 30s 待たずに完了すること
+	if elapsed > 15*time.Second {
+		t.Errorf("reconcile took %v, expected to timeout around %v", elapsed, reconcileGetTaskTimeout)
+	}
+
+	// タイムアウトエラーのためタスクはスキップされて維持される
+	if !o.state.IsClaimedOrRunning("task-1") {
+		t.Fatal("expected task-1 to remain running on GetTask timeout")
 	}
 }
 
@@ -1207,6 +1268,21 @@ func TestRecoverProcessingTasks(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// hangingTaskClient は GetTask が指定時間ハングするモック
+type hangingTaskClient struct {
+	mockTaskClient
+	hangDuration time.Duration
+}
+
+func (h *hangingTaskClient) GetTask(ctx context.Context, taskID string) (*clickup.Task, error) {
+	select {
+	case <-time.After(h.hangDuration):
+		return h.mockTaskClient.GetTask(ctx, taskID)
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 

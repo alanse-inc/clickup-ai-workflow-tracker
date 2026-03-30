@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -268,7 +269,9 @@ const (
 func (o *Orchestrator) reconcile(ctx context.Context) {
 	runningIDs := o.state.RunningTaskIDs()
 	for _, taskID := range runningIDs {
-		task, err := o.taskClient.GetTask(ctx, taskID)
+		getCtx, cancel := context.WithTimeout(ctx, reconcileGetTaskTimeout)
+		task, err := o.taskClient.GetTask(getCtx, taskID)
+		cancel()
 		if err != nil {
 			o.logger.Warn("failed to get task for reconciliation, skipping", "task_id", taskID, "error", err)
 			continue
@@ -406,9 +409,11 @@ const (
 	retryMaxDelayMS = 300000
 	// retryMaxExponent はビットシフトオーバーフロー防止のための最大指数
 	retryMaxExponent = 5 // 2^5 = 32 → 10000 * 32 = 320000 → capped to 300000
+	// reconcileGetTaskTimeout は reconcile 内の個別 GetTask 呼び出しのタイムアウト
+	reconcileGetTaskTimeout = 10 * time.Second
 )
 
-// calcRetryDelay はリトライのバックオフ遅延を計算する
+// calcRetryDelay はリトライのベース遅延を計算する（決定論的）
 func calcRetryDelay(attempt int) time.Duration {
 	exp := attempt - 1
 	if exp > retryMaxExponent {
@@ -421,6 +426,19 @@ func calcRetryDelay(attempt int) time.Duration {
 	return time.Duration(delay) * time.Millisecond
 }
 
+// addJitter はベース遅延に ±25% のランダム jitter を加える。
+// thundering herd を防ぐため、複数タスクのリトライタイミングを分散させる。
+// 結果は retryMaxDelayMS でクリップされる。
+func addJitter(base time.Duration) time.Duration {
+	// [0.75, 1.25) の範囲でスケーリング
+	factor := 0.75 + rand.Float64()*0.5 //nolint:gosec // G404: jitter 用途であり暗号論的安全性は不要
+	result := time.Duration(float64(base) * factor)
+	if max := time.Duration(retryMaxDelayMS) * time.Millisecond; result > max {
+		return max
+	}
+	return result
+}
+
 // scheduleRetry はリトライタイマーを設定する
 func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, err error) {
 	o.retryMu.Lock()
@@ -430,7 +448,7 @@ func (o *Orchestrator) scheduleRetry(taskID string, phase string, attempt int, e
 		return
 	}
 
-	delayDuration := calcRetryDelay(attempt)
+	delayDuration := addJitter(calcRetryDelay(attempt))
 
 	tl := logging.TaskLogger(o.logger, taskID, phase)
 	tl.Warn("scheduling retry", "attempt", attempt, "delay", delayDuration, "error", err)
